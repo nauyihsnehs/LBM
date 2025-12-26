@@ -88,7 +88,8 @@ def _existing_output_state(
 
     existing_count = 0
     last_key: Optional[Tuple[str, int, int]] = None
-    dataset = wds.WebDataset(str(output_path / "relight-*.tar"))
+    shard_glob = [str(path) for path in shard_paths]
+    dataset = wds.WebDataset(shard_glob)
     for sample in dataset:
         key = sample.get("__key__")
         if key is None:
