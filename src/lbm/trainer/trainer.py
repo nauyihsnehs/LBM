@@ -70,9 +70,24 @@ class TrainingPipeline(pl.LightningModule):
         average_time_frequency = 10
         if self.global_rank == 0 and batch_idx % average_time_frequency == 0:
             delta = time.perf_counter() - self.timer
-            logging.info(
-                f"Average time per batch {batch_idx} took {delta / (batch_idx + 1)} seconds"
-            )
+            loss = None
+            if isinstance(outputs, dict):
+                loss = outputs.get("loss")
+            if isinstance(loss, torch.Tensor):
+                loss = loss.detach().float().mean().item()
+            lr = None
+            if hasattr(self, "trainer") and self.trainer.optimizers:
+                lr = self.trainer.optimizers[0].param_groups[0].get("lr")
+            metrics = [
+                f"epoch={self.current_epoch}",
+                f"step={batch_idx}",
+                f"avg_batch_time={delta / (batch_idx + 1):.4f}s",
+            ]
+            if loss is not None:
+                metrics.append(f"loss={loss:.6f}")
+            if lr is not None:
+                metrics.append(f"lr={lr:.6f}")
+            logging.info(" | ".join(metrics))
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         """
@@ -162,7 +177,23 @@ class TrainingPipeline(pl.LightningModule):
     def training_step(self, train_batch: Dict[str, Any], batch_idx: int) -> dict:
         model_output = self.model(train_batch)
         loss = model_output["loss"]
-        logging.info(f"loss: {loss}")
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+        if self.trainer is not None and self.trainer.optimizers:
+            self.log(
+                "train/lr",
+                self.trainer.optimizers[0].param_groups[0].get("lr", 0.0),
+                on_step=True,
+                on_epoch=False,
+                prog_bar=True,
+                sync_dist=True,
+            )
         return {
             "loss": loss,
             "batch_idx": batch_idx,
