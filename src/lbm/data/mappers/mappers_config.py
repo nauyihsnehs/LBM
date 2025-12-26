@@ -107,3 +107,29 @@ class RescaleMapperConfig(BaseMapperConfig):
     """
 
     key: str = "image"
+
+
+@dataclass
+class LightParamsMapperConfig(BaseMapperConfig):
+    """
+    Parse light parameters from a sample into a torch-friendly vector.
+
+    Args:
+        key (str): Key to parse from the sample.
+        output_key (Optional[str]): Key to store the parsed tensor.
+        expected_length (int): Expected number of parameters.
+        param_order (Optional[List[str]]): Order of parameters when parsing dictionaries.
+    """
+
+    key: str = "light_params"
+    output_key: Optional[str] = "light_params"
+    expected_length: int = 7
+    param_order: Optional[List[str]] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.param_order is None:
+            self.param_order = ["theta", "phi", "alpha", "e", "R", "G", "B"]
+        assert len(self.param_order) == self.expected_length, (
+            "param_order length must match expected_length"
+        )

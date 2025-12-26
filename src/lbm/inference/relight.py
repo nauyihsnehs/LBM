@@ -9,6 +9,8 @@ from lbm.models.embedders import (
     ConditionerWrapper,
     LatentsConcatEmbedder,
     LatentsConcatEmbedderConfig,
+    LightParamsEmbedder,
+    LightParamsEmbedderConfig,
 )
 from lbm.models.lbm import LBMConfig, LBMModel
 from lbm.models.unets import DiffusersUNet2DCondWrapper
@@ -35,8 +37,11 @@ def build_relight_model(
     latent_loss_type: str = "l2",
     latent_loss_weight: float = 1.0,
     pixel_loss_weight: float = 0.0,
+    extra_conditioners: Optional[List[torch.nn.Module]] = None,
 ) -> LBMModel:
     conditioners = []
+    if extra_conditioners:
+        conditioners.extend(extra_conditioners)
 
     if conditioning_images_keys is None:
         conditioning_images_keys = ["shading", "normal"]
@@ -202,3 +207,56 @@ def build_relight_model(
     ).to(torch.bfloat16)
 
     return model
+
+
+def build_relight_params_model(
+    backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    vae_num_channels: int = 4,
+    unet_input_channels: int = 8,
+    timestep_sampling: str = "log_normal",
+    selected_timesteps: Optional[List[float]] = None,
+    prob: Optional[List[float]] = None,
+    conditioning_images_keys: Optional[List[str]] = None,
+    conditioning_masks_keys: Optional[List[str]] = None,
+    source_key: str = "source",
+    target_key: str = "target",
+    mask_key: Optional[str] = None,
+    bridge_noise_sigma: float = 0.0,
+    logit_mean: float = 0.0,
+    logit_std: float = 1.0,
+    pixel_loss_type: str = "lpips",
+    latent_loss_type: str = "l2",
+    latent_loss_weight: float = 1.0,
+    pixel_loss_weight: float = 0.0,
+    light_params_config: Optional[LightParamsEmbedderConfig] = None,
+) -> LBMModel:
+    if conditioning_images_keys is None:
+        conditioning_images_keys = ["depth"]
+    if conditioning_masks_keys is None:
+        conditioning_masks_keys = []
+    if light_params_config is None:
+        light_params_config = LightParamsEmbedderConfig()
+
+    light_params_embedder = LightParamsEmbedder(light_params_config)
+
+    return build_relight_model(
+        backbone_signature=backbone_signature,
+        vae_num_channels=vae_num_channels,
+        unet_input_channels=unet_input_channels,
+        timestep_sampling=timestep_sampling,
+        selected_timesteps=selected_timesteps,
+        prob=prob,
+        conditioning_images_keys=conditioning_images_keys,
+        conditioning_masks_keys=conditioning_masks_keys,
+        source_key=source_key,
+        target_key=target_key,
+        mask_key=mask_key,
+        bridge_noise_sigma=bridge_noise_sigma,
+        logit_mean=logit_mean,
+        logit_std=logit_std,
+        pixel_loss_type=pixel_loss_type,
+        latent_loss_type=latent_loss_type,
+        latent_loss_weight=latent_loss_weight,
+        pixel_loss_weight=pixel_loss_weight,
+        extra_conditioners=[light_params_embedder],
+    )
