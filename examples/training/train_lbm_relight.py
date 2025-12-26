@@ -45,26 +45,25 @@ from lbm.trainer.utils import StateDictAdapter
 
 
 def get_model(
-    backbone_signature: str = "runwayml/stable-diffusion-v1-5",
-    vae_num_channels: int = 4,
-    unet_input_channels: int = 12,
-    timestep_sampling: str = "log_normal",
-    selected_timesteps: Optional[List[float]] = None,
-    prob: Optional[List[float]] = None,
-    conditioning_images_keys: Optional[List[str]] = None,
-    conditioning_masks_keys: Optional[List[str]] = None,
-    source_key: str = "source",
-    target_key: str = "target",
-    mask_key: Optional[str] = None,
-    bridge_noise_sigma: float = 0.0,
-    logit_mean: float = 0.0,
-    logit_std: float = 1.0,
-    pixel_loss_type: str = "lpips",
-    latent_loss_type: str = "l2",
-    latent_loss_weight: float = 1.0,
-    pixel_loss_weight: float = 0.0,
+        backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        vae_num_channels: int = 4,
+        unet_input_channels: int = 12,
+        timestep_sampling: str = "log_normal",
+        selected_timesteps: Optional[List[float]] = None,
+        prob: Optional[List[float]] = None,
+        conditioning_images_keys: Optional[List[str]] = None,
+        conditioning_masks_keys: Optional[List[str]] = None,
+        source_key: str = "source",
+        target_key: str = "target",
+        mask_key: Optional[str] = None,
+        bridge_noise_sigma: float = 0.0,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        pixel_loss_type: str = "lpips",
+        latent_loss_type: str = "l2",
+        latent_loss_weight: float = 1.0,
+        pixel_loss_weight: float = 0.0,
 ):
-
     conditioners = []
 
     if conditioning_images_keys is None:
@@ -78,20 +77,89 @@ def get_model(
         torch_dtype=torch.bfloat16,
     )
 
-    unet_config = pipe.unet.config.to_dict()
-    unet_config["in_channels"] = unet_input_channels
-    unet_config["out_channels"] = vae_num_channels
-
-    denoiser = DiffusersUNet2DCondWrapper(**unet_config).to(torch.bfloat16)
+    denoiser = DiffusersUNet2DCondWrapper(
+        in_channels=unet_input_channels,
+        out_channels=vae_num_channels,
+        center_input_sample=False,
+        flip_sin_to_cos=True,
+        freq_shift=0,
+        down_block_types=[
+            "CrossAttnDownBlock2D",
+            "CrossAttnDownBlock2D",
+            "CrossAttnDownBlock2D",
+            "DownBlock2D",
+        ],
+        mid_block_type="UNetMidBlock2DCrossAttn",
+        up_block_types=[
+            "UpBlock2D",
+            "CrossAttnUpBlock2D",
+            "CrossAttnUpBlock2D",
+            "CrossAttnUpBlock2D",
+        ],
+        only_cross_attention=False,
+        block_out_channels=[320, 640, 1280, 1280],
+        layers_per_block=2,
+        downsample_padding=1,
+        mid_block_scale_factor=1,
+        dropout=0.0,
+        act_fn="silu",
+        norm_num_groups=32,
+        norm_eps=1e-05,
+        cross_attention_dim=[320, 640, 1280, 1280],
+        transformer_layers_per_block=1,
+        reverse_transformer_layers_per_block=None,
+        encoder_hid_dim=None,
+        encoder_hid_dim_type=None,
+        attention_head_dim=8,
+        num_attention_heads=None,
+        dual_cross_attention=False,
+        use_linear_projection=False,
+        class_embed_type=None,
+        addition_embed_type=None,
+        addition_time_embed_dim=None,
+        num_class_embeds=None,
+        upcast_attention=False,
+        resnet_time_scale_shift="default",
+        resnet_skip_time_act=False,
+        resnet_out_scale_factor=1.0,
+        time_embedding_type="positional",
+        time_embedding_dim=None,
+        time_embedding_act_fn=None,
+        timestep_post_act=None,
+        time_cond_proj_dim=None,
+        conv_in_kernel=3,
+        conv_out_kernel=3,
+        projection_class_embeddings_input_dim=None,
+        attention_type="default",
+        class_embeddings_concat=False,
+        mid_block_only_cross_attention=None,
+        cross_attention_norm=None,
+        addition_embed_type_num_heads=64,
+        # sample_size=64,
+    ).to(torch.bfloat16)
 
     state_dict = pipe.unet.state_dict()
 
+    # Remove SDXL-specific layers
+    keys_to_remove = [
+        "add_embedding.linear_1.weight",
+        "add_embedding.linear_1.bias",
+        "add_embedding.linear_2.weight",
+        "add_embedding.linear_2.bias",
+    ]
+    for key in keys_to_remove:
+        if key in state_dict:
+            del state_dict[key]
+
+    # Adapt the shapes for SD1.5
     state_dict_adapter = StateDictAdapter()
     state_dict = state_dict_adapter(
         model_state_dict=denoiser.state_dict(),
         checkpoint_state_dict=state_dict,
         regex_keys=[
             r"conv_in.weight",
+            r"(down_blocks|up_blocks)\.\d+\.attentions\.\d+\.transformer_blocks\.\d+\.attn\d+\.(to_k|to_v)\.weight",
+            r"mid_block\.attentions\.\d+\.transformer_blocks\.\d+\.attn\d+\.(to_k|to_v)\.weight",
         ],
         strategy="zeros",
     )
@@ -100,7 +168,7 @@ def get_model(
 
     del pipe
 
-    if conditioning_images_keys or conditioning_masks_keys:
+    if conditioning_images_keys != [] or conditioning_masks_keys != []:
         latents_concat_embedder_config = LatentsConcatEmbedderConfig(
             image_keys=conditioning_images_keys,
             mask_keys=conditioning_masks_keys,
@@ -166,10 +234,10 @@ def get_model(
 
 
 def get_filter_mappers(
-    source_image_key: str = "source.png",
-    target_image_key: str = "target.png",
-    shading_key: str = "shading.png",
-    normal_key: str = "normal.png",
+        source_image_key: str = "source.png",
+        target_image_key: str = "target.png",
+        shading_key: str = "shading.png",
+        normal_key: str = "normal.png",
 ):
     filters_mappers = [
         KeyFilter(
@@ -253,15 +321,14 @@ def get_filter_mappers(
 
 
 def get_data_module(
-    train_shards: List[str],
-    validation_shards: List[str],
-    batch_size: int,
-    source_image_key: str = "source.png",
-    target_image_key: str = "target.png",
-    shading_key: str = "shading.png",
-    normal_key: str = "normal.png",
+        train_shards: List[str],
+        validation_shards: List[str],
+        batch_size: int,
+        source_image_key: str = "source.png",
+        target_image_key: str = "target.png",
+        shading_key: str = "shading.png",
+        normal_key: str = "normal.png",
 ):
-
     # TRAIN
     train_filters_mappers = get_filter_mappers(
         source_image_key=source_image_key,
@@ -289,7 +356,7 @@ def get_data_module(
         shuffle_before_filter_mappers_buffer_size=20,
         shuffle_after_filter_mappers_buffer_size=20,
         per_worker_batch_size=batch_size,
-        num_workers=min(10, len(train_shards_path_or_urls_unbraced)),
+        num_workers=min(2, len(train_shards_path_or_urls_unbraced)),
     )
 
     train_data_config = data_config
@@ -334,47 +401,47 @@ def get_data_module(
 
 
 def main(
-    train_shards: List[str] = ["pipe:cat path/to/train/shards"],
-    validation_shards: List[str] = ["pipe:cat path/to/validation/shards"],
-    backbone_signature: str = "runwayml/stable-diffusion-v1-5",
-    vae_num_channels: int = 4,
-    unet_input_channels: int = 12,
-    source_key: str = "source",
-    target_key: str = "target",
-    mask_key: Optional[str] = None,
-    wandb_project: str = "lbm-relight",
-    batch_size: int = 8,
-    num_steps: List[int] = [1, 2, 4],
-    learning_rate: float = 5e-5,
-    learning_rate_scheduler: str = None,
-    learning_rate_scheduler_kwargs: dict = {},
-    optimizer: str = "AdamW",
-    optimizer_kwargs: dict = {},
-    timestep_sampling: str = "uniform",
-    logit_mean: float = 0.0,
-    logit_std: float = 1.0,
-    pixel_loss_type: str = "lpips",
-    latent_loss_type: str = "l2",
-    latent_loss_weight: float = 1.0,
-    pixel_loss_weight: float = 0.0,
-    selected_timesteps: List[float] = None,
-    prob: List[float] = None,
-    conditioning_images_keys: Optional[List[str]] = None,
-    conditioning_masks_keys: Optional[List[str]] = None,
-    source_image_key: str = "source.png",
-    target_image_key: str = "target.png",
-    shading_key: str = "shading.png",
-    normal_key: str = "normal.png",
-    config_yaml: dict = None,
-    save_ckpt_path: str = "./checkpoints",
-    log_interval: int = 100,
-    resume_from_checkpoint: bool = True,
-    max_epochs: int = 100,
-    bridge_noise_sigma: float = 0.005,
-    save_interval: int = 1000,
-    devices: Optional[int] = None,
-    num_nodes: int = 1,
-    path_config: str = None,
+        train_shards: List[str] = ["pipe:cat path/to/train/shards"],
+        validation_shards: List[str] = ["pipe:cat path/to/validation/shards"],
+        backbone_signature: str = "runwayml/stable-diffusion-v1-5",
+        vae_num_channels: int = 4,
+        unet_input_channels: int = 12,
+        source_key: str = "source",
+        target_key: str = "target",
+        mask_key: Optional[str] = None,
+        wandb_project: str = "lbm-relight",
+        batch_size: int = 8,
+        num_steps: List[int] = [1, 2, 4],
+        learning_rate: float = 5e-5,
+        learning_rate_scheduler: str = None,
+        learning_rate_scheduler_kwargs: dict = {},
+        optimizer: str = "AdamW",
+        optimizer_kwargs: dict = {},
+        timestep_sampling: str = "uniform",
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        pixel_loss_type: str = "lpips",
+        latent_loss_type: str = "l2",
+        latent_loss_weight: float = 1.0,
+        pixel_loss_weight: float = 0.0,
+        selected_timesteps: List[float] = None,
+        prob: List[float] = None,
+        conditioning_images_keys: Optional[List[str]] = None,
+        conditioning_masks_keys: Optional[List[str]] = None,
+        source_image_key: str = "source.png",
+        target_image_key: str = "target.png",
+        shading_key: str = "shading.png",
+        normal_key: str = "normal.png",
+        config_yaml: dict = None,
+        save_ckpt_path: str = "./checkpoints",
+        log_interval: int = 100,
+        resume_from_checkpoint: bool = True,
+        max_epochs: int = 100,
+        bridge_noise_sigma: float = 0.005,
+        save_interval: int = 1000,
+        devices: Optional[int] = None,
+        num_nodes: int = 1,
+        path_config: str = None,
 ):
     model = get_model(
         backbone_signature=backbone_signature,
@@ -424,9 +491,9 @@ def main(
         },
     )
     if (
-        os.path.exists(save_ckpt_path)
-        and resume_from_checkpoint
-        and "last.ckpt" in os.listdir(save_ckpt_path)
+            os.path.exists(save_ckpt_path)
+            and resume_from_checkpoint
+            and "last.ckpt" in os.listdir(save_ckpt_path)
     ):
         start_ckpt = f"{save_ckpt_path}/last.ckpt"
         print(f"Resuming from checkpoint: {start_ckpt}")
@@ -454,69 +521,32 @@ def main(
         }
     )
 
-    job_id = os.environ.get("SLURM_JOB_ID", "local")
-    array_id = os.environ.get("SLURM_ARRAY_TASK_ID", "0")
-    proc_id = os.environ.get("SLURM_PROCID", "0")
     training_signature = (
-        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        + "-LBM-Relight"
-        + f"{job_id}"
-        + f"_{array_id}"
+            datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            + "-LBM-Relight"
     )
-    dir_path = f"{save_ckpt_path}/logs/{training_signature}"
-    if proc_id == "0":
-        os.makedirs(dir_path, exist_ok=True)
-        if path_config is not None:
-            shutil.copy(path_config, f"{save_ckpt_path}/config.yaml")
     run_name = training_signature
 
-    # Ignore parameters unused during training
-    ignore_states = []
-    for name, param in pipeline.model.named_parameters():
-        ignore = True
-        for regex in ["denoiser."]:
-            pattern = re.compile(regex)
-            if re.match(pattern, name):
-                ignore = False
-        if ignore:
-            ignore_states.append(param)
-
-    # FSDP Strategy
-    strategy = FSDPStrategy(
-        auto_wrap_policy=ModuleWrapPolicy(
-            [
-                UNet2DConditionModel,
-                BasicTransformerBlock,
-                ResnetBlock2D,
-                torch.nn.Conv2d,
-            ]
-        ),
-        activation_checkpointing_policy=ModuleWrapPolicy(
-            [
-                BasicTransformerBlock,
-                ResnetBlock2D,
-            ]
-        ),
-        sharding_strategy="SHARD_GRAD_OP",
-        ignored_states=ignore_states,
-    )
 
     trainer = Trainer(
         accelerator="gpu",
         devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
         num_nodes=num_nodes,
-        strategy=strategy,
+        # strategy=strategy,
+        strategy='ddp_find_unused_parameters_true',
         default_root_dir="logs",
         logger=loggers.WandbLogger(
-            project=wandb_project, offline=False, name=run_name, save_dir=save_ckpt_path
+            project=wandb_project, offline=True, name=run_name, save_dir=save_ckpt_path
         ),
         callbacks=[
             WandbSampleLogger(log_batch_freq=log_interval),
             LearningRateMonitor(logging_interval="step"),
             ModelCheckpoint(
                 dirpath=save_ckpt_path,
-                every_n_train_steps=save_interval,
-                save_last=True,
+                # every_n_train_steps=save_interval,
+                every_n_epochs=1,
+                save_last=False,
+                save_top_k=-1
             ),
         ],
         num_sanity_val_steps=0,
