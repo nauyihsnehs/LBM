@@ -292,7 +292,10 @@ def main(
     ):
         start_ckpt = f"{save_ckpt_path}/last.ckpt"
         print(f"Resuming from checkpoint: {start_ckpt}")
-
+        # import pathlib
+        # p = pathlib.Path.cwd()
+        last_model = torch.load(start_ckpt, map_location="cpu", weights_only=False)
+        model.load_state_dict(last_model["state_dict"], strict=False)
     else:
         start_ckpt = None
 
@@ -341,7 +344,8 @@ def main(
                 # every_n_train_steps=save_interval,
                 every_n_epochs=1,
                 save_last=False,
-                save_top_k=-1
+                save_top_k=-1,
+                save_weights_only=False,
             ),
         ],
         num_sanity_val_steps=0,
@@ -351,7 +355,7 @@ def main(
         max_epochs=max_epochs,
     )
 
-    trainer.fit(pipeline, data_module, ckpt_path=start_ckpt)
+    trainer.fit(pipeline, data_module)#, ckpt_path=start_ckpt)
 
 
 def main_from_config(path_config: str = None):

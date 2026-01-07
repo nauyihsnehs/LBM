@@ -23,9 +23,11 @@ normal_key: normal.png
 # SHARDS_PATH_OR_URLS
 train_shards:
   - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000005..000120}.tar
+#  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000005..000006}.tar
 
 validation_shards:
   - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000000..000004}.tar
+#  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-000000.tar
 
 batch_size: 2
 learning_rate: 4e-5
@@ -34,5 +36,5 @@ num_steps: [1, 4]
 log_interval: 500
 resume_from_checkpoint: true
 max_epochs: 50
-save_interval: 1000
+save_interval: 10000
 save_ckpt_path: ./checkpoints

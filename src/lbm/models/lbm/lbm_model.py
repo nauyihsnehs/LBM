@@ -138,7 +138,7 @@ class LBMModel(BaseModel):
 
         # Sample a timestep
         timestep = self._timestep_sampling(n_samples=z.shape[0], device=z.device)
-        sigmas = None
+        # sigmas = None
 
         # Create interpolant
         sigmas = self._get_sigmas(

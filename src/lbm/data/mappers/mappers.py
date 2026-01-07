@@ -1,12 +1,10 @@
-import json
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict
 
 from torchvision import transforms
 
 from .base import BaseMapper
 from .mappers_config import (
     KeyRenameMapperConfig,
-    LightParamsMapperConfig,
     RescaleMapperConfig,
     TorchvisionMapperConfig,
 )
@@ -134,42 +132,4 @@ class RescaleMapper(BaseMapper):
             batch[self.output_key] = tmp
         else:
             batch[self.output_key] = 2 * batch[self.key] - 1
-        return batch
-
-
-class LightParamsMapper(BaseMapper):
-    """
-    Parse light parameters into a tensor-friendly list.
-
-    Accepts JSON strings/bytes, dicts, lists, or tensors.
-    """
-
-    def __init__(self, config: LightParamsMapperConfig):
-        super().__init__(config)
-        self.expected_length = config.expected_length
-        self.param_order = config.param_order
-
-    def _parse_value(self, value: Any) -> List[float]:
-        if isinstance(value, (bytes, bytearray)):
-            value = value.decode("utf-8")
-        if isinstance(value, str):
-            value = json.loads(value)
-        if isinstance(value, dict):
-            return [float(value[key]) for key in self.param_order]
-        if isinstance(value, (list, tuple)):
-            return [float(v) for v in value]
-        if hasattr(value, "tolist"):
-            return [float(v) for v in value.tolist()]
-        if isinstance(value, Iterable):
-            return [float(v) for v in value]
-        raise TypeError(f"Unsupported light params type: {type(value)}")
-
-    def __call__(self, batch: Dict[str, Any], *args, **kwrags) -> Dict[str, Any]:
-        if self.key in batch:
-            values = self._parse_value(batch[self.key])
-            if len(values) != self.expected_length:
-                raise ValueError(
-                    f"Expected {self.expected_length} light params, got {len(values)}"
-                )
-            batch[self.output_key] = values
         return batch
