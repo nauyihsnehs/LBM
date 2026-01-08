@@ -1,243 +1,251 @@
 import datetime
 import logging
 import os
-import random
+from pathlib import Path
 from typing import List, Optional
 
-import braceexpand
 import fire
 import torch
 import yaml
+from PIL import Image
 from pytorch_lightning import Trainer, loggers
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
-from lbm.data.datasets import DataModule, DataModuleConfig
-from lbm.data.filters import KeyFilter, KeyFilterConfig
-from lbm.data.mappers import (
-    KeyRenameMapper,
-    KeyRenameMapperConfig,
-    MapperWrapper,
-    RescaleMapper,
-    RescaleMapperConfig,
-    TorchvisionMapper,
-    TorchvisionMapperConfig,
-)
 from lbm.inference.relight import build_relight_model
 from lbm.trainer import TrainingConfig, TrainingPipeline
 from lbm.trainer.loggers import WandbSampleLogger
 
 
-def get_filter_mappers(
-        source_image_key: str = "source.png",
-        target_image_key: str = "target.png",
-        shading_key: str = "shading.png",
-        normal_key: str = "normal.png",
-):
-    filters_mappers = [
-        KeyFilter(
-            KeyFilterConfig(
-                keys=[source_image_key, target_image_key, shading_key, normal_key]
+class RelightFolderDataset(Dataset):
+    def __init__(
+        self,
+        root_dir: str,
+        source_folder: str = "source",
+        target_folder: str = "target",
+        shading_folder: str = "shading",
+        normal_folder: str = "normal",
+        image_size: int = 512,
+        random_flip: bool = False,
+        random_scale_min: float = 1.0,
+        random_scale_max: float = 1.0,
+    ):
+        self.root_dir = Path(root_dir)
+        self.source_folder = source_folder
+        self.target_folder = target_folder
+        self.shading_folder = shading_folder
+        self.normal_folder = normal_folder
+        self.random_flip = random_flip
+        self.random_scale_min = random_scale_min
+        self.random_scale_max = random_scale_max
+
+        self.items = self._build_items()
+        if not self.items:
+            raise ValueError(
+                "No matching samples found across source/target/shading/normal folders."
             )
-        ),
-        MapperWrapper(
+
+        self.transforms = transforms.Compose(
             [
-                KeyRenameMapper(
-                    KeyRenameMapperConfig(
-                        key_map={
-                            source_image_key: "source",
-                            target_image_key: "target",
-                            shading_key: "shading",
-                            normal_key: "normal",
+                transforms.Resize(
+                    (image_size, image_size),
+                    interpolation=InterpolationMode.NEAREST_EXACT,
+                ),
+                transforms.ToTensor(),
+            ]
+        )
+
+    def _validate_directories(self, directories: List[Path]) -> None:
+        for directory in directories:
+            if not directory.exists():
+                raise FileNotFoundError(f"Missing directory: {directory}")
+
+    def _index_files(self, directory: Path) -> dict:
+        valid_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+        files = [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and path.suffix.lower() in valid_suffixes
+        ]
+        return {path.stem: path for path in files}
+
+    def _build_items(self) -> List[dict]:
+        if not self.root_dir.exists():
+            raise FileNotFoundError(f"Missing dataset root: {self.root_dir}")
+
+        items: List[dict] = []
+        person_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
+        for person_dir in sorted(person_dirs):
+            source_dir = person_dir / self.source_folder
+            target_dir = person_dir / self.target_folder
+            shading_dir = person_dir / self.shading_folder
+            normal_dir = person_dir / self.normal_folder
+
+            self._validate_directories(
+                [source_dir, target_dir, shading_dir, normal_dir]
+            )
+
+            source_files = self._index_files(source_dir)
+            normal_files = self._index_files(normal_dir)
+
+            target_files = [
+                path
+                for path in target_dir.iterdir()
+                if path.is_file()
+                and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+            ]
+
+            for target_path in target_files:
+                stem = target_path.stem
+                frame_id = stem.split("_")[0]
+                shading_path = shading_dir / target_path.name
+                source_path = source_files.get(frame_id)
+                normal_path = normal_files.get(frame_id)
+                if (
+                    shading_path.exists()
+                    and source_path is not None
+                    and normal_path is not None
+                ):
+                    items.append(
+                        {
+                            "source": source_path,
+                            "target": target_path,
+                            "shading": shading_path,
+                            "normal": normal_path,
                         }
                     )
-                ),
-                TorchvisionMapper(
-                    TorchvisionMapperConfig(
-                        key="source",
-                        transforms=["ToTensor", "Resize"],
-                        transforms_kwargs=[
-                            {},
-                            {
-                                "size": (512, 512),
-                                "interpolation": InterpolationMode.NEAREST_EXACT,
-                            },
-                        ],
-                    )
-                ),
-                TorchvisionMapper(
-                    TorchvisionMapperConfig(
-                        key="target",
-                        transforms=["ToTensor", "Resize"],
-                        transforms_kwargs=[
-                            {},
-                            {
-                                "size": (512, 512),
-                                "interpolation": InterpolationMode.NEAREST_EXACT,
-                            },
-                        ],
-                    )
-                ),
-                TorchvisionMapper(
-                    TorchvisionMapperConfig(
-                        key="shading",
-                        transforms=["ToTensor", "Resize"],
-                        transforms_kwargs=[
-                            {},
-                            {
-                                "size": (512, 512),
-                                "interpolation": InterpolationMode.NEAREST_EXACT,
-                            },
-                        ],
-                    )
-                ),
-                TorchvisionMapper(
-                    TorchvisionMapperConfig(
-                        key="normal",
-                        transforms=["ToTensor", "Resize"],
-                        transforms_kwargs=[
-                            {},
-                            {
-                                "size": (512, 512),
-                                "interpolation": InterpolationMode.NEAREST_EXACT,
-                            },
-                        ],
-                    )
-                ),
-                RescaleMapper(RescaleMapperConfig(key="source")),
-                RescaleMapper(RescaleMapperConfig(key="target")),
-                RescaleMapper(RescaleMapperConfig(key="shading")),
-                RescaleMapper(RescaleMapperConfig(key="normal")),
-            ],
-        ),
-    ]
+        return items
 
-    return filters_mappers
+    def _load_image(self, path: Path) -> torch.Tensor:
+        image = Image.open(path).convert("RGB")
+        return self.transforms(image)
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, index: int) -> dict:
+        item = self.items[index]
+        sample = {
+            "source": self._load_image(item["source"]),
+            "target": self._load_image(item["target"]),
+            "shading": self._load_image(item["shading"]),
+            "normal": self._load_image(item["normal"]),
+        }
+        if self.random_scale_min != 1.0 or self.random_scale_max != 1.0:
+            scale = torch.empty(1).uniform_(self.random_scale_min, self.random_scale_max)
+            sample = {
+                key: torch.clamp(value * scale, 0.0, 1.0)
+                for key, value in sample.items()
+            }
+        if self.random_flip and torch.rand(1).item() < 0.5:
+            sample = {key: torch.flip(value, dims=[2]) for key, value in sample.items()}
+        return {key: value * 2 - 1 for key, value in sample.items()}
 
 
-def get_data_module(
-        train_shards: List[str],
-        validation_shards: List[str],
-        batch_size: int,
-        source_image_key: str = "source.png",
-        target_image_key: str = "target.png",
-        shading_key: str = "shading.png",
-        normal_key: str = "normal.png",
+def get_dataloaders(
+    train_data_root: str,
+    validation_data_root: str,
+    batch_size: int,
+    source_folder: str = "source",
+    target_folder: str = "target",
+    shading_folder: str = "shading",
+    normal_folder: str = "normal",
+    image_size: int = 512,
+    num_workers: int = 4,
+    train_random_flip: bool = True,
+    train_random_scale_min: float = 1.0,
+    train_random_scale_max: float = 1.0,
 ):
-    # TRAIN
-    train_filters_mappers = get_filter_mappers(
-        source_image_key=source_image_key,
-        target_image_key=target_image_key,
-        shading_key=shading_key,
-        normal_key=normal_key,
+    train_dataset = RelightFolderDataset(
+        root_dir=train_data_root,
+        source_folder=source_folder,
+        target_folder=target_folder,
+        shading_folder=shading_folder,
+        normal_folder=normal_folder,
+        image_size=image_size,
+        random_flip=train_random_flip,
+        random_scale_min=train_random_scale_min,
+        random_scale_max=train_random_scale_max,
+    )
+    validation_dataset = RelightFolderDataset(
+        root_dir=validation_data_root,
+        source_folder=source_folder,
+        target_folder=target_folder,
+        shading_folder=shading_folder,
+        normal_folder=normal_folder,
+        image_size=image_size,
     )
 
-    # unbrace urls
-    train_shards_path_or_urls_unbraced = []
-    for train_shards_path_or_url in train_shards:
-        train_shards_path_or_urls_unbraced.extend(
-            braceexpand.braceexpand(train_shards_path_or_url)
-        )
-
-    # shuffle shards
-    random.shuffle(train_shards_path_or_urls_unbraced)
-
-    # data config
-    data_config = DataModuleConfig(
-        shards_path_or_urls=train_shards_path_or_urls_unbraced,
-        decoder="pil",
-        shuffle_before_split_by_node_buffer_size=20,
-        shuffle_before_split_by_workers_buffer_size=20,
-        shuffle_before_filter_mappers_buffer_size=20,
-        shuffle_after_filter_mappers_buffer_size=20,
-        per_worker_batch_size=batch_size,
-        num_workers=min(2, len(train_shards_path_or_urls_unbraced)),
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=num_workers > 0,
+    )
+    validation_loader = DataLoader(
+        validation_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=num_workers > 0,
     )
 
-    train_data_config = data_config
-
-    # VALIDATION
-    validation_filters_mappers = get_filter_mappers(
-        source_image_key=source_image_key,
-        target_image_key=target_image_key,
-        shading_key=shading_key,
-        normal_key=normal_key,
-    )
-
-    # unbrace urls
-    validation_shards_path_or_urls_unbraced = []
-    for validation_shards_path_or_url in validation_shards:
-        validation_shards_path_or_urls_unbraced.extend(
-            braceexpand.braceexpand(validation_shards_path_or_url)
-        )
-
-    data_config = DataModuleConfig(
-        shards_path_or_urls=validation_shards_path_or_urls_unbraced,
-        decoder="pil",
-        shuffle_before_split_by_node_buffer_size=10,
-        shuffle_before_split_by_workers_buffer_size=10,
-        shuffle_before_filter_mappers_buffer_size=10,
-        shuffle_after_filter_mappers_buffer_size=10,
-        per_worker_batch_size=batch_size,
-        num_workers=min(10, len(train_shards_path_or_urls_unbraced)),
-    )
-
-    validation_data_config = data_config
-
-    # data module
-    data_module = DataModule(
-        train_config=train_data_config,
-        train_filters_mappers=train_filters_mappers,
-        eval_config=validation_data_config,
-        eval_filters_mappers=validation_filters_mappers,
-    )
-
-    return data_module
+    return train_loader, validation_loader
 
 
 def main(
-        train_shards: List[str] = ["pipe:cat path/to/train/shards"],
-        validation_shards: List[str] = ["pipe:cat path/to/validation/shards"],
-        backbone_signature: str = "runwayml/stable-diffusion-v1-5",
-        vae_num_channels: int = 4,
-        unet_input_channels: int = 12,
-        source_key: str = "source",
-        target_key: str = "target",
-        mask_key: Optional[str] = None,
-        wandb_project: str = "lbm-relight",
-        batch_size: int = 8,
-        num_steps: List[int] = [1, 2, 4],
-        learning_rate: float = 5e-5,
-        learning_rate_scheduler: str = None,
-        learning_rate_scheduler_kwargs: dict = {},
-        optimizer: str = "AdamW",
-        optimizer_kwargs: dict = {},
-        timestep_sampling: str = "uniform",
-        logit_mean: float = 0.0,
-        logit_std: float = 1.0,
-        pixel_loss_type: str = "lpips",
-        latent_loss_type: str = "l2",
-        latent_loss_weight: float = 1.0,
-        pixel_loss_weight: float = 0.0,
-        selected_timesteps: List[float] = None,
-        prob: List[float] = None,
-        conditioning_images_keys: Optional[List[str]] = None,
-        conditioning_masks_keys: Optional[List[str]] = None,
-        source_image_key: str = "source.png",
-        target_image_key: str = "target.png",
-        shading_key: str = "shading.png",
-        normal_key: str = "normal.png",
-        config_yaml: dict = None,
-        save_ckpt_path: str = "./checkpoints",
-        log_interval: int = 100,
-        resume_from_checkpoint: bool = True,
-        max_epochs: int = 100,
-        bridge_noise_sigma: float = 0.005,
-        save_interval: int = 1000,
-        devices: Optional[int] = None,
-        num_nodes: int = 1,
-        path_config: str = None,
+    train_data_root: str = "path/to/train",
+    validation_data_root: str = "path/to/validation",
+    backbone_signature: str = "runwayml/stable-diffusion-v1-5",
+    vae_num_channels: int = 4,
+    unet_input_channels: int = 12,
+    source_key: str = "source",
+    target_key: str = "target",
+    mask_key: Optional[str] = None,
+    wandb_project: str = "lbm-relight",
+    batch_size: int = 8,
+    num_steps: List[int] = [1, 2, 4],
+    learning_rate: float = 5e-5,
+    learning_rate_scheduler: str = None,
+    learning_rate_scheduler_kwargs: dict = {},
+    optimizer: str = "AdamW",
+    optimizer_kwargs: dict = {},
+    timestep_sampling: str = "uniform",
+    logit_mean: float = 0.0,
+    logit_std: float = 1.0,
+    pixel_loss_type: str = "lpips",
+    latent_loss_type: str = "l2",
+    latent_loss_weight: float = 1.0,
+    pixel_loss_weight: float = 0.0,
+    selected_timesteps: List[float] = None,
+    prob: List[float] = None,
+    conditioning_images_keys: Optional[List[str]] = None,
+    conditioning_masks_keys: Optional[List[str]] = None,
+    source_folder: str = "source",
+    target_folder: str = "target",
+    shading_folder: str = "shading",
+    normal_folder: str = "normal",
+    image_size: int = 512,
+    num_workers: int = 4,
+    train_random_flip: bool = True,
+    train_random_scale_min: float = 1.0,
+    train_random_scale_max: float = 1.0,
+    config_yaml: dict = None,
+    save_ckpt_path: str = "./checkpoints",
+    log_interval: int = 100,
+    resume_from_checkpoint: bool = True,
+    max_epochs: int = 100,
+    bridge_noise_sigma: float = 0.005,
+    save_interval: int = 1000,
+    devices: Optional[int] = None,
+    num_nodes: int = 1,
+    path_config: str = None,
 ):
     model = build_relight_model(
         backbone_signature=backbone_signature,
@@ -260,14 +268,19 @@ def main(
         bridge_noise_sigma=bridge_noise_sigma,
     )
 
-    data_module = get_data_module(
-        train_shards=train_shards,
-        validation_shards=validation_shards,
+    train_loader, validation_loader = get_dataloaders(
+        train_data_root=train_data_root,
+        validation_data_root=validation_data_root,
         batch_size=batch_size,
-        source_image_key=source_image_key,
-        target_image_key=target_image_key,
-        shading_key=shading_key,
-        normal_key=normal_key,
+        source_folder=source_folder,
+        target_folder=target_folder,
+        shading_folder=shading_folder,
+        normal_folder=normal_folder,
+        image_size=image_size,
+        num_workers=num_workers,
+        train_random_flip=train_random_flip,
+        train_random_scale_min=train_random_scale_min,
+        train_random_scale_max=train_random_scale_max,
     )
 
     train_parameters = ["denoiser.*"]
@@ -287,9 +300,9 @@ def main(
         },
     )
     if (
-            os.path.exists(save_ckpt_path)
-            and resume_from_checkpoint
-            and "last.ckpt" in os.listdir(save_ckpt_path)
+        os.path.exists(save_ckpt_path)
+        and resume_from_checkpoint
+        and "last.ckpt" in os.listdir(save_ckpt_path)
     ):
         start_ckpt = f"{save_ckpt_path}/last.ckpt"
         print(f"Resuming from checkpoint: {start_ckpt}")
@@ -321,17 +334,16 @@ def main(
     )
 
     training_signature = (
-            datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            + "-LBM-Relight"
+        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Relight"
     )
     run_name = training_signature
 
     import platform
 
     if platform.system() == "Windows":
-        strategy = DDPStrategy(find_unused_parameters=True, process_group_backend='gloo')
+        strategy = DDPStrategy(find_unused_parameters=True, process_group_backend="gloo")
     else:
-        strategy = 'ddp_find_unused_parameters_true'
+        strategy = "ddp_find_unused_parameters_true"
     trainer = Trainer(
         accelerator="gpu",
         devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
@@ -361,7 +373,7 @@ def main(
         max_epochs=max_epochs,
     )
 
-    trainer.fit(pipeline, data_module)#, ckpt_path=start_ckpt)
+    trainer.fit(pipeline, train_dataloaders=train_loader, val_dataloaders=validation_loader)
 
 
 def main_from_config(path_config: str = None):
