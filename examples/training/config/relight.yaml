@@ -15,18 +15,16 @@ conditioning_images_keys: [shading, normal]
 conditioning_masks_keys: []
 source_key: source
 target_key: target
-source_image_key: source.png
-target_image_key: target.png
-shading_key: shading.png
-normal_key: normal.png
 
-# SHARDS_PATH_OR_URLS
-train_shards:
-  - file:E:/_codes/_relighting/LBM/dataset/relight-000001.tar
-#  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000005..000006}.tar
-
-validation_shards:
-  - file:E:/_codes/_relighting/LBM/dataset/relight-000000.tar
+# DATA ROOTS
+train_data_root: E:/_codes/_relighting/LBM/dataset/train
+validation_data_root: E:/_codes/_relighting/LBM/dataset/validation
+source_folder: source
+target_folder: target
+shading_folder: shading
+normal_folder: normal
+image_size: 512
+num_workers: 4
 
 batch_size: 2
 learning_rate: 4e-5
