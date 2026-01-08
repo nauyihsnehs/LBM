@@ -10,6 +10,7 @@ import torch
 import yaml
 from pytorch_lightning import Trainer, loggers
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.strategies import DDPStrategy
 from torchvision.transforms import InterpolationMode
 
 from lbm.data.datasets import DataModule, DataModuleConfig
@@ -325,13 +326,18 @@ def main(
     )
     run_name = training_signature
 
+    import platform
 
+    if platform.system() == "Windows":
+        strategy = DDPStrategy(find_unused_parameters=True, process_group_backend='gloo')
+    else:
+        strategy = 'ddp_find_unused_parameters_true'
     trainer = Trainer(
         accelerator="gpu",
         devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
         num_nodes=num_nodes,
-        # strategy=strategy,
-        strategy='ddp_find_unused_parameters_true',
+        strategy=strategy,
+        # strategy='ddp_find_unused_parameters_true',
         default_root_dir="logs",
         logger=loggers.WandbLogger(
             project=wandb_project, offline=True, name=run_name, save_dir=save_ckpt_path

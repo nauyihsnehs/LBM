@@ -22,12 +22,11 @@ normal_key: normal.png
 
 # SHARDS_PATH_OR_URLS
 train_shards:
-  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000005..000120}.tar
+  - file:E:/_codes/_relighting/LBM/dataset/relight-000001.tar
 #  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000005..000006}.tar
 
 validation_shards:
-  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-{000000..000004}.tar
-#  - pipe:cat /home/ssy/fillnet/relight_webdataset/relight-000000.tar
+  - file:E:/_codes/_relighting/LBM/dataset/relight-000000.tar
 
 batch_size: 2
 learning_rate: 4e-5
