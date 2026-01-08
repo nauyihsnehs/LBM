@@ -25,6 +25,9 @@ shading_folder: shading
 normal_folder: normal
 image_size: 512
 num_workers: 4
+train_random_flip: true
+train_random_scale_min: 0.9
+train_random_scale_max: 1.1
 
 batch_size: 2
 learning_rate: 4e-5

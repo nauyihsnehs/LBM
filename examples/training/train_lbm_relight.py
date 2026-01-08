@@ -29,29 +29,23 @@ class RelightFolderDataset(Dataset):
         shading_folder: str = "shading",
         normal_folder: str = "normal",
         image_size: int = 512,
+        random_flip: bool = False,
+        random_scale_min: float = 1.0,
+        random_scale_max: float = 1.0,
     ):
         self.root_dir = Path(root_dir)
-        self.source_dir = self.root_dir / source_folder
-        self.target_dir = self.root_dir / target_folder
-        self.shading_dir = self.root_dir / shading_folder
-        self.normal_dir = self.root_dir / normal_folder
+        self.source_folder = source_folder
+        self.target_folder = target_folder
+        self.shading_folder = shading_folder
+        self.normal_folder = normal_folder
+        self.random_flip = random_flip
+        self.random_scale_min = random_scale_min
+        self.random_scale_max = random_scale_max
 
-        self._validate_directories()
-
-        self.source_files = self._index_files(self.source_dir)
-        self.target_files = self._index_files(self.target_dir)
-        self.shading_files = self._index_files(self.shading_dir)
-        self.normal_files = self._index_files(self.normal_dir)
-
-        self.file_stems = sorted(
-            set(self.source_files)
-            & set(self.target_files)
-            & set(self.shading_files)
-            & set(self.normal_files)
-        )
-        if not self.file_stems:
+        self.items = self._build_items()
+        if not self.items:
             raise ValueError(
-                "No matching files found across source/target/shading/normal folders."
+                "No matching samples found across source/target/shading/normal folders."
             )
 
         self.transforms = transforms.Compose(
@@ -64,13 +58,8 @@ class RelightFolderDataset(Dataset):
             ]
         )
 
-    def _validate_directories(self) -> None:
-        for directory in [
-            self.source_dir,
-            self.target_dir,
-            self.shading_dir,
-            self.normal_dir,
-        ]:
+    def _validate_directories(self, directories: List[Path]) -> None:
+        for directory in directories:
             if not directory.exists():
                 raise FileNotFoundError(f"Missing directory: {directory}")
 
@@ -83,22 +72,77 @@ class RelightFolderDataset(Dataset):
         ]
         return {path.stem: path for path in files}
 
+    def _build_items(self) -> List[dict]:
+        if not self.root_dir.exists():
+            raise FileNotFoundError(f"Missing dataset root: {self.root_dir}")
+
+        items: List[dict] = []
+        person_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
+        for person_dir in sorted(person_dirs):
+            source_dir = person_dir / self.source_folder
+            target_dir = person_dir / self.target_folder
+            shading_dir = person_dir / self.shading_folder
+            normal_dir = person_dir / self.normal_folder
+
+            self._validate_directories(
+                [source_dir, target_dir, shading_dir, normal_dir]
+            )
+
+            source_files = self._index_files(source_dir)
+            normal_files = self._index_files(normal_dir)
+
+            target_files = [
+                path
+                for path in target_dir.iterdir()
+                if path.is_file()
+                and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+            ]
+
+            for target_path in target_files:
+                stem = target_path.stem
+                frame_id = stem.split("_")[0]
+                shading_path = shading_dir / target_path.name
+                source_path = source_files.get(frame_id)
+                normal_path = normal_files.get(frame_id)
+                if (
+                    shading_path.exists()
+                    and source_path is not None
+                    and normal_path is not None
+                ):
+                    items.append(
+                        {
+                            "source": source_path,
+                            "target": target_path,
+                            "shading": shading_path,
+                            "normal": normal_path,
+                        }
+                    )
+        return items
+
     def _load_image(self, path: Path) -> torch.Tensor:
         image = Image.open(path).convert("RGB")
-        tensor = self.transforms(image)
-        return tensor * 2 - 1
+        return self.transforms(image)
 
     def __len__(self) -> int:
-        return len(self.file_stems)
+        return len(self.items)
 
     def __getitem__(self, index: int) -> dict:
-        stem = self.file_stems[index]
-        return {
-            "source": self._load_image(self.source_files[stem]),
-            "target": self._load_image(self.target_files[stem]),
-            "shading": self._load_image(self.shading_files[stem]),
-            "normal": self._load_image(self.normal_files[stem]),
+        item = self.items[index]
+        sample = {
+            "source": self._load_image(item["source"]),
+            "target": self._load_image(item["target"]),
+            "shading": self._load_image(item["shading"]),
+            "normal": self._load_image(item["normal"]),
         }
+        if self.random_scale_min != 1.0 or self.random_scale_max != 1.0:
+            scale = torch.empty(1).uniform_(self.random_scale_min, self.random_scale_max)
+            sample = {
+                key: torch.clamp(value * scale, 0.0, 1.0)
+                for key, value in sample.items()
+            }
+        if self.random_flip and torch.rand(1).item() < 0.5:
+            sample = {key: torch.flip(value, dims=[2]) for key, value in sample.items()}
+        return {key: value * 2 - 1 for key, value in sample.items()}
 
 
 def get_dataloaders(
@@ -111,6 +155,9 @@ def get_dataloaders(
     normal_folder: str = "normal",
     image_size: int = 512,
     num_workers: int = 4,
+    train_random_flip: bool = True,
+    train_random_scale_min: float = 1.0,
+    train_random_scale_max: float = 1.0,
 ):
     train_dataset = RelightFolderDataset(
         root_dir=train_data_root,
@@ -119,6 +166,9 @@ def get_dataloaders(
         shading_folder=shading_folder,
         normal_folder=normal_folder,
         image_size=image_size,
+        random_flip=train_random_flip,
+        random_scale_min=train_random_scale_min,
+        random_scale_max=train_random_scale_max,
     )
     validation_dataset = RelightFolderDataset(
         root_dir=validation_data_root,
@@ -183,6 +233,9 @@ def main(
     normal_folder: str = "normal",
     image_size: int = 512,
     num_workers: int = 4,
+    train_random_flip: bool = True,
+    train_random_scale_min: float = 1.0,
+    train_random_scale_max: float = 1.0,
     config_yaml: dict = None,
     save_ckpt_path: str = "./checkpoints",
     log_interval: int = 100,
@@ -225,6 +278,9 @@ def main(
         normal_folder=normal_folder,
         image_size=image_size,
         num_workers=num_workers,
+        train_random_flip=train_random_flip,
+        train_random_scale_min=train_random_scale_min,
+        train_random_scale_max=train_random_scale_max,
     )
 
     train_parameters = ["denoiser.*"]
