@@ -1,0 +1,10 @@
+train_config: examples/training/config/relight.yaml
+checkpoint_path: ./checkpoints/last.ckpt
+source_image: /path/to/source
+shading_image: /path/to/shading
+normal_image: /path/to/normal
+output_path: ./outputs/relight
+num_inference_steps: 4
+image_size: 512
+device: cuda
+torch_dtype: bfloat16
