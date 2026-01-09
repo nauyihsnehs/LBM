@@ -1,7 +1,7 @@
 # wandb
-wandb_project: lbm-relight
+wandb_project: lbm-albedo
 backbone_signature: stable-diffusion-v1-5/stable-diffusion-v1-5
-unet_input_channels: 12
+unet_input_channels: 4
 vae_num_channels: 4
 timestep_sampling: custom_timesteps
 selected_timesteps: [250, 500, 750, 1000]
@@ -11,18 +11,14 @@ pixel_loss_weight: 10.0
 latent_loss_type: l2 # l1 l2
 latent_loss_weight: 1.0
 bridge_noise_sigma: 0.005
-conditioning_images_keys: [shading, normal]
+conditioning_images_keys: []
 conditioning_masks_keys: []
 source_key: source
 target_key: target
 
 # DATA ROOTS
-train_data_root: E:/_codes/_relighting/rendered_people/render/lbm-test/train
-validation_data_root: E:/_codes/_relighting/rendered_people/render/lbm-test/val
-source_folder: source
-target_folder: target
-shading_folder: shading
-normal_folder: normal
+train_data_root: E:/evermotion/Archinteriors-Vol.58-3.6/AI58_002/render-full
+validation_data_root: E:/evermotion/Archinteriors-Vol.58-3.6/AI58_002/render
 image_size: 512
 num_workers: 4
 train_random_flip: true

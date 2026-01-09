@@ -87,7 +87,7 @@ class TrainingPipeline(pl.LightningModule):
                 metrics.append(f"loss={loss:.6f}")
             if lr is not None:
                 metrics.append(f"lr={lr:.6f}")
-            logging.info(" | ".join(metrics))
+            # logging.info(" | ".join(metrics))
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         """

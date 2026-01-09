@@ -20,33 +20,23 @@ from lbm.trainer import TrainingConfig, TrainingPipeline
 from lbm.trainer.loggers import WandbSampleLogger
 
 
-class RelightFolderDataset(Dataset):
+class AlbedoFolderDataset(Dataset):
     def __init__(
         self,
         root_dir: str,
-        source_folder: str = "source",
-        target_folder: str = "target",
-        shading_folder: str = "shading",
-        normal_folder: str = "normal",
         image_size: int = 512,
         random_flip: bool = False,
         random_scale_min: float = 1.0,
         random_scale_max: float = 1.0,
     ):
         self.root_dir = Path(root_dir)
-        self.source_folder = source_folder
-        self.target_folder = target_folder
-        self.shading_folder = shading_folder
-        self.normal_folder = normal_folder
         self.random_flip = random_flip
         self.random_scale_min = random_scale_min
         self.random_scale_max = random_scale_max
 
         self.items = self._build_items()
         if not self.items:
-            raise ValueError(
-                "No matching samples found across source/target/shading/normal folders."
-            )
+            raise ValueError("No matching samples found for albedo training.")
 
         self.transforms = transforms.Compose(
             [
@@ -58,65 +48,47 @@ class RelightFolderDataset(Dataset):
             ]
         )
 
-    def _validate_directories(self, directories: List[Path]) -> None:
-        for directory in directories:
-            if not directory.exists():
-                raise FileNotFoundError(f"Missing directory: {directory}")
-
-    def _index_files(self, directory: Path) -> dict:
+    def _index_albedo_files(self, directory: Path) -> dict:
         valid_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-        files = [
+        albedo_files = [
             path
             for path in directory.iterdir()
-            if path.is_file() and path.suffix.lower() in valid_suffixes
+            if path.is_file()
+            and path.suffix.lower() in valid_suffixes
+            and path.stem.endswith("_alb")
         ]
-        return {path.stem: path for path in files}
+        camera_to_path = {}
+        for path in albedo_files:
+            camera_id = path.stem.split("_")[0]
+            camera_to_path[camera_id] = path
+        return camera_to_path
 
     def _build_items(self) -> List[dict]:
         if not self.root_dir.exists():
             raise FileNotFoundError(f"Missing dataset root: {self.root_dir}")
 
+        valid_suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
         items: List[dict] = []
         person_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
         for person_dir in sorted(person_dirs):
-            source_dir = person_dir / self.source_folder
-            target_dir = person_dir / self.target_folder
-            shading_dir = person_dir / self.shading_folder
-            normal_dir = person_dir / self.normal_folder
-
-            self._validate_directories(
-                [source_dir, target_dir, shading_dir, normal_dir]
-            )
-
-            source_files = self._index_files(source_dir)
-            normal_files = self._index_files(normal_dir)
-
-            target_files = [
+            albedo_by_camera = self._index_albedo_files(person_dir)
+            rgb_files = [
                 path
-                for path in target_dir.iterdir()
+                for path in person_dir.iterdir()
                 if path.is_file()
-                and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+                and path.suffix.lower() in valid_suffixes
+                and path.stem.endswith("_rgb")
             ]
 
-            for target_path in target_files:
-                stem = target_path.stem
-                frame_id = stem.split("_")[0]
-                shading_path = shading_dir / target_path.name
-                source_path = source_files.get(frame_id)
-                normal_path = normal_files.get(frame_id)
-                if (
-                    shading_path.exists()
-                    and source_path is not None
-                    and normal_path is not None
-                ):
-                    items.append(
-                        {
-                            "source": source_path,
-                            "target": target_path,
-                            "shading": shading_path,
-                            "normal": normal_path,
-                        }
-                    )
+            for rgb_path in rgb_files:
+                stem_parts = rgb_path.stem.split("_")
+                if len(stem_parts) < 2:
+                    continue
+                camera_id = stem_parts[0]
+                albedo_path = albedo_by_camera.get(camera_id)
+                if albedo_path is None:
+                    continue
+                items.append({"source": rgb_path, "target": albedo_path})
         return items
 
     def _load_image(self, path: Path) -> torch.Tensor:
@@ -131,8 +103,6 @@ class RelightFolderDataset(Dataset):
         sample = {
             "source": self._load_image(item["source"]),
             "target": self._load_image(item["target"]),
-            "shading": self._load_image(item["shading"]),
-            "normal": self._load_image(item["normal"]),
         }
         if self.random_scale_min != 1.0 or self.random_scale_max != 1.0:
             scale = torch.empty(1).uniform_(self.random_scale_min, self.random_scale_max)
@@ -149,33 +119,21 @@ def get_dataloaders(
     train_data_root: str,
     validation_data_root: str,
     batch_size: int,
-    source_folder: str = "source",
-    target_folder: str = "target",
-    shading_folder: str = "shading",
-    normal_folder: str = "normal",
     image_size: int = 512,
     num_workers: int = 4,
     train_random_flip: bool = True,
     train_random_scale_min: float = 1.0,
     train_random_scale_max: float = 1.0,
 ):
-    train_dataset = RelightFolderDataset(
+    train_dataset = AlbedoFolderDataset(
         root_dir=train_data_root,
-        source_folder=source_folder,
-        target_folder=target_folder,
-        shading_folder=shading_folder,
-        normal_folder=normal_folder,
         image_size=image_size,
         random_flip=train_random_flip,
         random_scale_min=train_random_scale_min,
         random_scale_max=train_random_scale_max,
     )
-    validation_dataset = RelightFolderDataset(
+    validation_dataset = AlbedoFolderDataset(
         root_dir=validation_data_root,
-        source_folder=source_folder,
-        target_folder=target_folder,
-        shading_folder=shading_folder,
-        normal_folder=normal_folder,
         image_size=image_size,
     )
 
@@ -204,11 +162,11 @@ def main(
     validation_data_root: str = "path/to/validation",
     backbone_signature: str = "runwayml/stable-diffusion-v1-5",
     vae_num_channels: int = 4,
-    unet_input_channels: int = 12,
+    unet_input_channels: int = 4,
     source_key: str = "source",
     target_key: str = "target",
     mask_key: Optional[str] = None,
-    wandb_project: str = "lbm-relight",
+    wandb_project: str = "lbm-albedo",
     batch_size: int = 8,
     num_steps: List[int] = [1, 2, 4],
     learning_rate: float = 5e-5,
@@ -225,12 +183,8 @@ def main(
     pixel_loss_weight: float = 0.0,
     selected_timesteps: List[float] = None,
     prob: List[float] = None,
-    conditioning_images_keys: Optional[List[str]] = None,
-    conditioning_masks_keys: Optional[List[str]] = None,
-    source_folder: str = "source",
-    target_folder: str = "target",
-    shading_folder: str = "shading",
-    normal_folder: str = "normal",
+    conditioning_images_keys: Optional[List[str]] = [],
+    conditioning_masks_keys: Optional[List[str]] = [],
     image_size: int = 512,
     num_workers: int = 4,
     train_random_flip: bool = True,
@@ -272,10 +226,6 @@ def main(
         train_data_root=train_data_root,
         validation_data_root=validation_data_root,
         batch_size=batch_size,
-        source_folder=source_folder,
-        target_folder=target_folder,
-        shading_folder=shading_folder,
-        normal_folder=normal_folder,
         image_size=image_size,
         num_workers=num_workers,
         train_random_flip=train_random_flip,
@@ -290,7 +240,7 @@ def main(
         learning_rate=learning_rate,
         lr_scheduler_name=learning_rate_scheduler,
         lr_scheduler_kwargs=learning_rate_scheduler_kwargs,
-        log_keys=["source", "target", "shading", "normal"],
+        log_keys=["source", "target"],
         trainable_params=train_parameters,
         optimizer_name=optimizer,
         optimizer_kwargs=optimizer_kwargs,
@@ -306,8 +256,6 @@ def main(
     ):
         start_ckpt = f"{save_ckpt_path}/last.ckpt"
         print(f"Resuming from checkpoint: {start_ckpt}")
-        # import pathlib
-        # p = pathlib.Path.cwd()
         last_model = torch.load(start_ckpt, map_location="cpu", weights_only=False)
         model.load_state_dict(last_model["state_dict"], strict=False)
     else:
@@ -334,7 +282,7 @@ def main(
     )
 
     training_signature = (
-        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Relight"
+        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Albedo"
     )
     run_name = training_signature
 
@@ -349,7 +297,6 @@ def main(
         devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
         num_nodes=num_nodes,
         strategy=strategy,
-        # strategy='ddp_find_unused_parameters_true',
         default_root_dir="logs",
         logger=loggers.WandbLogger(
             project=wandb_project, offline=True, name=run_name, save_dir=save_ckpt_path
@@ -359,7 +306,6 @@ def main(
             LearningRateMonitor(logging_interval="step"),
             ModelCheckpoint(
                 dirpath=save_ckpt_path,
-                # every_n_train_steps=save_interval,
                 every_n_epochs=1,
                 save_last=False,
                 save_top_k=-1,
@@ -374,7 +320,9 @@ def main(
         max_epochs=max_epochs,
     )
 
-    trainer.fit(pipeline, train_dataloaders=train_loader, val_dataloaders=validation_loader)
+    trainer.fit(
+        pipeline, train_dataloaders=train_loader, val_dataloaders=validation_loader
+    )
 
 
 def main_from_config(path_config: str = None):
