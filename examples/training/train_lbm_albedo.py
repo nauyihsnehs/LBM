@@ -22,12 +22,12 @@ from lbm.trainer.loggers import WandbSampleLogger
 
 class AlbedoFolderDataset(Dataset):
     def __init__(
-        self,
-        root_dir: str,
-        image_size: int = 512,
-        random_flip: bool = False,
-        random_scale_min: float = 1.0,
-        random_scale_max: float = 1.0,
+            self,
+            root_dir: str,
+            image_size: int = 512,
+            random_flip: bool = False,
+            random_scale_min: float = 1.0,
+            random_scale_max: float = 1.0,
     ):
         self.root_dir = Path(root_dir)
         self.random_flip = random_flip
@@ -54,8 +54,8 @@ class AlbedoFolderDataset(Dataset):
             path
             for path in directory.iterdir()
             if path.is_file()
-            and path.suffix.lower() in valid_suffixes
-            and path.stem.endswith("_alb")
+               and path.suffix.lower() in valid_suffixes
+               and path.stem.endswith("_alb")
         ]
         camera_to_path = {}
         for path in albedo_files:
@@ -76,8 +76,8 @@ class AlbedoFolderDataset(Dataset):
                 path
                 for path in person_dir.iterdir()
                 if path.is_file()
-                and path.suffix.lower() in valid_suffixes
-                and path.stem.endswith("_rgb")
+                   and path.suffix.lower() in valid_suffixes
+                   and path.stem.endswith("_rgb")
             ]
 
             for rgb_path in rgb_files:
@@ -116,14 +116,14 @@ class AlbedoFolderDataset(Dataset):
 
 
 def get_dataloaders(
-    train_data_root: str,
-    validation_data_root: str,
-    batch_size: int,
-    image_size: int = 512,
-    num_workers: int = 4,
-    train_random_flip: bool = True,
-    train_random_scale_min: float = 1.0,
-    train_random_scale_max: float = 1.0,
+        train_data_root: str,
+        validation_data_root: str,
+        batch_size: int,
+        image_size: int = 512,
+        num_workers: int = 4,
+        train_random_flip: bool = True,
+        train_random_scale_min: float = 1.0,
+        train_random_scale_max: float = 1.0,
 ):
     train_dataset = AlbedoFolderDataset(
         root_dir=train_data_root,
@@ -158,48 +158,48 @@ def get_dataloaders(
 
 
 def main(
-    train_data_root: str = "path/to/train",
-    validation_data_root: str = "path/to/validation",
-    backbone_signature: str = "runwayml/stable-diffusion-v1-5",
-    vae_num_channels: int = 4,
-    unet_input_channels: int = 4,
-    source_key: str = "source",
-    target_key: str = "target",
-    mask_key: Optional[str] = None,
-    wandb_project: str = "lbm-albedo",
-    batch_size: int = 8,
-    num_steps: List[int] = [1, 2, 4],
-    learning_rate: float = 5e-5,
-    learning_rate_scheduler: str = None,
-    learning_rate_scheduler_kwargs: dict = {},
-    optimizer: str = "AdamW",
-    optimizer_kwargs: dict = {},
-    timestep_sampling: str = "uniform",
-    logit_mean: float = 0.0,
-    logit_std: float = 1.0,
-    pixel_loss_type: str = "lpips",
-    latent_loss_type: str = "l2",
-    latent_loss_weight: float = 1.0,
-    pixel_loss_weight: float = 0.0,
-    selected_timesteps: List[float] = None,
-    prob: List[float] = None,
-    conditioning_images_keys: Optional[List[str]] = [],
-    conditioning_masks_keys: Optional[List[str]] = [],
-    image_size: int = 512,
-    num_workers: int = 4,
-    train_random_flip: bool = True,
-    train_random_scale_min: float = 1.0,
-    train_random_scale_max: float = 1.0,
-    config_yaml: dict = None,
-    save_ckpt_path: str = "./checkpoints",
-    log_interval: int = 100,
-    resume_from_checkpoint: bool = True,
-    max_epochs: int = 100,
-    bridge_noise_sigma: float = 0.005,
-    save_interval: int = 1000,
-    devices: Optional[int] = None,
-    num_nodes: int = 1,
-    path_config: str = None,
+        train_data_root: str = "path/to/train",
+        validation_data_root: str = "path/to/validation",
+        backbone_signature: str = "runwayml/stable-diffusion-v1-5",
+        vae_num_channels: int = 4,
+        unet_input_channels: int = 4,
+        source_key: str = "source",
+        target_key: str = "target",
+        mask_key: Optional[str] = None,
+        wandb_project: str = "lbm-albedo",
+        batch_size: int = 8,
+        num_steps: List[int] = [1, 2, 4],
+        learning_rate: float = 5e-5,
+        learning_rate_scheduler: str = None,
+        learning_rate_scheduler_kwargs: dict = {},
+        optimizer: str = "AdamW",
+        optimizer_kwargs: dict = {},
+        timestep_sampling: str = "uniform",
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        pixel_loss_type: str = "lpips",
+        latent_loss_type: str = "l2",
+        latent_loss_weight: float = 1.0,
+        pixel_loss_weight: float = 0.0,
+        selected_timesteps: List[float] = None,
+        prob: List[float] = None,
+        conditioning_images_keys: Optional[List[str]] = [],
+        conditioning_masks_keys: Optional[List[str]] = [],
+        image_size: int = 512,
+        num_workers: int = 4,
+        train_random_flip: bool = True,
+        train_random_scale_min: float = 1.0,
+        train_random_scale_max: float = 1.0,
+        config_yaml: dict = None,
+        save_ckpt_path: str = "./checkpoints",
+        log_interval: int = 100,
+        resume_from_checkpoint: bool = True,
+        max_epochs: int = 100,
+        bridge_noise_sigma: float = 0.005,
+        save_interval: int = 1000,
+        devices: Optional[int] = None,
+        num_nodes: int = 1,
+        path_config: str = None,
 ):
     model = build_relight_model(
         backbone_signature=backbone_signature,
@@ -250,9 +250,9 @@ def main(
         },
     )
     if (
-        os.path.exists(save_ckpt_path)
-        and resume_from_checkpoint
-        and "last.ckpt" in os.listdir(save_ckpt_path)
+            os.path.exists(save_ckpt_path)
+            and resume_from_checkpoint
+            and "last.ckpt" in os.listdir(save_ckpt_path)
     ):
         start_ckpt = f"{save_ckpt_path}/last.ckpt"
         print(f"Resuming from checkpoint: {start_ckpt}")
@@ -282,7 +282,7 @@ def main(
     )
 
     training_signature = (
-        datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Albedo"
+            datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Albedo"
     )
     run_name = training_signature
 
