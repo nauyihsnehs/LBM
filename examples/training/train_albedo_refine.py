@@ -16,7 +16,6 @@ from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
 from lbm.inference.relight import build_relight_model
-from lbm.intrinsic import AlbedoInference
 from lbm.trainer import TrainingConfig, TrainingPipeline
 from lbm.trainer.loggers import WandbSampleLogger
 
@@ -25,20 +24,19 @@ class AlbedoRefineFolderDataset(Dataset):
     def __init__(
             self,
             root_dir: str,
+            robedo_suffix: str = "_rlb",
+            robedo_extension: str = ".png",
             image_size: int = 512,
             random_flip: bool = False,
             random_scale_min: float = 1.0,
             random_scale_max: float = 1.0,
-            robedo_device: Optional[str] = None,
-            robedo_base_size: int = 384,
     ):
         self.root_dir = Path(root_dir)
+        self.robedo_suffix = robedo_suffix
+        self.robedo_extension = robedo_extension
         self.random_flip = random_flip
         self.random_scale_min = random_scale_min
         self.random_scale_max = random_scale_max
-        self.robedo_device = robedo_device
-        self.robedo_base_size = robedo_base_size
-        self._robedo_model: Optional[AlbedoInference] = None
 
         self.items = self._build_items()
         if not self.items:
@@ -94,34 +92,23 @@ class AlbedoRefineFolderDataset(Dataset):
                 albedo_path = albedo_by_camera.get(camera_id)
                 if albedo_path is None:
                     continue
-                items.append({"source": rgb_path, "target": albedo_path})
+                robedo_path = self._get_robedo_path(rgb_path)
+                if not robedo_path.exists():
+                    continue
+                items.append(
+                    {"source": rgb_path, "target": albedo_path, "robedo": robedo_path}
+                )
         return items
 
     def _load_image(self, path: Path) -> torch.Tensor:
         image = Image.open(path).convert("RGB")
         return self.transforms(image)
 
-    def _get_robedo_model(self) -> AlbedoInference:
-        if self._robedo_model is None:
-            self._robedo_model = AlbedoInference(
-                device=self.robedo_device,
-                base_size=self.robedo_base_size,
-            )
-        return self._robedo_model
-
-    def _predict_robedo(self, source: torch.Tensor) -> torch.Tensor:
-        model = self._get_robedo_model()
-        with torch.inference_mode():
-            output = model(source.unsqueeze(0))
-        robedo = output.squeeze(0).detach().cpu()
-        if robedo.shape[-2:] != source.shape[-2:]:
-            robedo = torch.nn.functional.interpolate(
-                robedo.unsqueeze(0),
-                size=source.shape[-2:],
-                mode="bilinear",
-                align_corners=False,
-            ).squeeze(0)
-        return robedo
+    def _get_robedo_path(self, rgb_path: Path) -> Path:
+        if not rgb_path.stem.endswith("_rgb"):
+            raise ValueError(f"Expected rgb filename to end with _rgb: {rgb_path.name}")
+        robedo_stem = rgb_path.stem[: -len("_rgb")] + self.robedo_suffix
+        return rgb_path.with_name(f"{robedo_stem}{self.robedo_extension}")
 
     def __len__(self) -> int:
         return len(self.items)
@@ -130,7 +117,7 @@ class AlbedoRefineFolderDataset(Dataset):
         item = self.items[index]
         source = self._load_image(item["source"])
         target = self._load_image(item["target"])
-        robedo = self._predict_robedo(source)
+        robedo = self._load_image(item["robedo"])
         sample = {
             "source": source,
             "target": target,
@@ -151,28 +138,28 @@ def get_dataloaders(
         train_data_root: str,
         validation_data_root: str,
         batch_size: int,
+        robedo_suffix: str = "_rlb",
+        robedo_extension: str = ".png",
         image_size: int = 512,
         num_workers: int = 4,
         train_random_flip: bool = True,
         train_random_scale_min: float = 1.0,
         train_random_scale_max: float = 1.0,
-        robedo_device: Optional[str] = None,
-        robedo_base_size: int = 384,
 ):
     train_dataset = AlbedoRefineFolderDataset(
         root_dir=train_data_root,
+        robedo_suffix=robedo_suffix,
+        robedo_extension=robedo_extension,
         image_size=image_size,
         random_flip=train_random_flip,
         random_scale_min=train_random_scale_min,
         random_scale_max=train_random_scale_max,
-        robedo_device=robedo_device,
-        robedo_base_size=robedo_base_size,
     )
     validation_dataset = AlbedoRefineFolderDataset(
         root_dir=validation_data_root,
+        robedo_suffix=robedo_suffix,
+        robedo_extension=robedo_extension,
         image_size=image_size,
-        robedo_device=robedo_device,
-        robedo_base_size=robedo_base_size,
     )
 
     train_loader = DataLoader(
@@ -223,13 +210,13 @@ def main(
         prob: List[float] = None,
         conditioning_images_keys: Optional[List[str]] = None,
         conditioning_masks_keys: Optional[List[str]] = [],
+        robedo_suffix: str = "_rlb",
+        robedo_extension: str = ".png",
         image_size: int = 512,
         num_workers: int = 4,
         train_random_flip: bool = True,
         train_random_scale_min: float = 1.0,
         train_random_scale_max: float = 1.0,
-        robedo_device: Optional[str] = None,
-        robedo_base_size: int = 384,
         config_yaml: dict = None,
         save_ckpt_path: str = "./checkpoints",
         log_interval: int = 100,
@@ -269,13 +256,13 @@ def main(
         train_data_root=train_data_root,
         validation_data_root=validation_data_root,
         batch_size=batch_size,
+        robedo_suffix=robedo_suffix,
+        robedo_extension=robedo_extension,
         image_size=image_size,
         num_workers=num_workers,
         train_random_flip=train_random_flip,
         train_random_scale_min=train_random_scale_min,
         train_random_scale_max=train_random_scale_max,
-        robedo_device=robedo_device,
-        robedo_base_size=robedo_base_size,
     )
 
     train_parameters = ["denoiser.*"]

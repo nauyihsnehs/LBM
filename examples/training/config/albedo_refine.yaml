@@ -25,10 +25,6 @@ train_random_flip: true
 train_random_scale_min: 0.9
 train_random_scale_max: 1.1
 
-# ROUGH ALBEDO
-robedo_device: null
-robedo_base_size: 384
-
 batch_size: 1
 learning_rate: 4e-5
 optimizer: AdamW
