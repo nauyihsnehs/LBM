@@ -1,6 +1,6 @@
 import torch
 
-from inference_albedo_single_file import load_models, run_pipeline
+from .inference_albedo_single_file import load_models, run_pipeline
 
 
 class AlbedoInference(torch.nn.Module):

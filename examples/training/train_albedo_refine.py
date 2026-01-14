@@ -338,8 +338,8 @@ def main(
             LearningRateMonitor(logging_interval="step"),
             ModelCheckpoint(
                 dirpath=save_ckpt_path,
-                every_n_epochs=1,
-                save_last=False,
+                every_n_epochs=100,
+                save_last=True,
                 save_top_k=-1,
                 save_weights_only=False,
             ),

@@ -18,7 +18,7 @@ target_key: target
 
 # DATA ROOTS
 train_data_root: E:/evermotion/Archinteriors-Vol.58-3.6/AI58_002/render-full
-validation_data_root: E:/evermotion/Archinteriors-Vol.58-3.6/AI58_002/render
+validation_data_root: E:/evermotion/Archinteriors-Vol.58-3.6/AI58_002/render-val
 image_size: 512
 num_workers: 4
 train_random_flip: true

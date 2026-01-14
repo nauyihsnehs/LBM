@@ -51,7 +51,7 @@ def main(
     data_root: str,
     output_root: Optional[str] = None,
     device: Optional[str] = None,
-    base_size: int = 384,
+    base_size: int = 4,
     robedo_suffix: str = "_rlb",
     robedo_extension: str = ".png",
 ):
