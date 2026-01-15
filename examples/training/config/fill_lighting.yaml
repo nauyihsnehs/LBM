@@ -23,8 +23,8 @@ source_key: source
 target_key: target
 
 # DATA ROOTS
-train_data_root: path/to/train
-validation_data_root: path/to/val
+train_data_root: E:\evermotion\train-set
+validation_data_root: E:\evermotion\val-set
 source_folder: albedo
 target_folder: fill
 rgb_folder: rgb

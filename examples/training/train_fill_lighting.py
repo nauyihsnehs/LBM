@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -52,6 +53,12 @@ class FillLightingFolderDataset(Dataset):
         self.random_scale_min = random_scale_min
         self.random_scale_max = random_scale_max
 
+        self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
+        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
+        self._depth_pattern = re.compile(r"^(?P<pos>\d{3})_dpt$")
+        self._lighting_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_lgt$")
+
         self.items = self._build_items()
         if not self.items:
             raise ValueError(
@@ -67,11 +74,6 @@ class FillLightingFolderDataset(Dataset):
                 transforms.ToTensor(),
             ]
         )
-        self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
-        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
-        self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
-        self._depth_pattern = re.compile(r"^(?P<pos>\d{3})_dpt$")
-        self._lighting_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_lgt$")
 
     def _index_files(self, directory: Path, suffixes: Set[str]) -> Dict[str, Path]:
         files = [

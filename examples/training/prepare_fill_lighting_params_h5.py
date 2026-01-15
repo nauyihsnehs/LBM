@@ -14,7 +14,7 @@ FILENAME_PATTERN = re.compile(r"(?P<pos>\d{3})_(?P<light>\d{3})_rgb")
 
 
 def _extract_ids(frame: Dict) -> Optional[Tuple[str, str]]:
-    pos_id = frame.get("pos_id") or frame.get("frame_id") or frame.get("position_id")
+    pos_id = frame.get("pos_id")
     light_id = frame.get("light_id")
     if pos_id is not None and light_id is not None:
         return f"{int(pos_id):03d}", f"{int(light_id):03d}"
@@ -106,7 +106,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root_dir",
         type=Path,
-        required=True,
+        # default=r'E:\evermotion\train-set',
+        default=r'E:\evermotion\val-set',
         help="Root directory containing base scene/human folders.",
     )
     parser.add_argument(
