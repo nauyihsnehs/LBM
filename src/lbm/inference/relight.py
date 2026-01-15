@@ -9,6 +9,8 @@ from lbm.models.embedders import (
     ConditionerWrapper,
     LatentsConcatEmbedder,
     LatentsConcatEmbedderConfig,
+    LightingParamsEmbedder,
+    LightingParamsEmbedderConfig,
 )
 from lbm.models.lbm import LBMConfig, LBMModel
 from lbm.models.unets import DiffusersUNet2DCondWrapper
@@ -25,6 +27,8 @@ def build_relight_model(
     prob: Optional[List[float]] = None,
     conditioning_images_keys: Optional[List[str]] = None,
     conditioning_masks_keys: Optional[List[str]] = None,
+    lighting_conditioning: bool = False,
+    lighting_embedder_config: Optional[dict] = None,
     source_key: str = "source",
     target_key: str = "target",
     mask_key: Optional[str] = None,
@@ -148,6 +152,12 @@ def build_relight_model(
         latent_concat_embedder = LatentsConcatEmbedder(latents_concat_embedder_config)
         latent_concat_embedder.freeze()
         conditioners.append(latent_concat_embedder)
+
+    if lighting_conditioning:
+        embedder_kwargs = lighting_embedder_config or {}
+        lighting_embedder_config_obj = LightingParamsEmbedderConfig(**embedder_kwargs)
+        lighting_embedder = LightingParamsEmbedder(lighting_embedder_config_obj)
+        conditioners.append(lighting_embedder)
 
     # Wrap conditioners and set to device
     conditioner = ConditionerWrapper(
