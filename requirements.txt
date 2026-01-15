@@ -6,6 +6,7 @@ black==24.2.0
 einops==0.7.0
 fire>=0.5.0
 gradio==5.29.0
+h5py==3.10.0
 isort==5.13.2
 lightning==2.5.0
 lpips==0.1.4

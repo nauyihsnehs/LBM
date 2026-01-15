@@ -1,9 +1,11 @@
 import datetime
 import logging
 import os
+import re
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
+import cv2
 import fire
 import torch
 import yaml
@@ -20,7 +22,7 @@ from lbm.trainer import TrainingConfig, TrainingPipeline
 from lbm.trainer.loggers import WandbSampleLogger
 
 VALID_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-LIGHTING_PARAM_SUFFIXES = {".txt", ".json", ".pt", ".pth", ".npy"}
+LIGHTING_PARAM_SUFFIXES = {".txt", ".json", ".pt", ".pth", ".npy", ".h5", ".hdf5"}
 
 
 class FillLightingFolderDataset(Dataset):
@@ -45,6 +47,7 @@ class FillLightingFolderDataset(Dataset):
         self.depth_folder = depth_folder
         self.lighting_params_folder = lighting_params_folder
         self.lighting_scale_folder = lighting_scale_folder
+        self.image_size = image_size
         self.random_flip = random_flip
         self.random_scale_min = random_scale_min
         self.random_scale_max = random_scale_max
@@ -64,22 +67,13 @@ class FillLightingFolderDataset(Dataset):
                 transforms.ToTensor(),
             ]
         )
-        self.gray_transform = transforms.Compose(
-            [
-                transforms.Resize(
-                    (image_size, image_size),
-                    interpolation=InterpolationMode.NEAREST_EXACT,
-                ),
-                transforms.ToTensor(),
-            ]
-        )
+        self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
+        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
+        self._depth_pattern = re.compile(r"^(?P<pos>\d{3})_dpt$")
+        self._lighting_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_lgt$")
 
-    def _validate_directories(self, directories: List[Path]) -> None:
-        for directory in directories:
-            if not directory.exists():
-                raise FileNotFoundError(f"Missing directory: {directory}")
-
-    def _index_files(self, directory: Path, suffixes: Set[str]) -> dict:
+    def _index_files(self, directory: Path, suffixes: Set[str]) -> Dict[str, Path]:
         files = [
             path
             for path in directory.iterdir()
@@ -92,55 +86,61 @@ class FillLightingFolderDataset(Dataset):
             raise FileNotFoundError(f"Missing dataset root: {self.root_dir}")
 
         items: List[dict] = []
-        person_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
-        for person_dir in sorted(person_dirs):
-            source_dir = person_dir / self.source_folder
-            target_dir = person_dir / self.target_folder
-            rgb_dir = person_dir / self.rgb_folder
-            depth_dir = person_dir / self.depth_folder
-            lighting_params_dir = person_dir / self.lighting_params_folder
-            lighting_scale_dir = person_dir / self.lighting_scale_folder
+        base_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
+        for base_dir in sorted(base_dirs):
+            files = list(base_dir.iterdir())
+            source_files: Dict[str, Path] = {}
+            rgb_files: Dict[str, Path] = {}
+            depth_files: Dict[str, Path] = {}
+            lighting_params_files: Dict[str, Dict[str, Path]] = {}
+            target_files: Dict[str, Dict[str, Path]] = {}
 
-            self._validate_directories(
-                [
-                    source_dir,
-                    target_dir,
-                    rgb_dir,
-                    depth_dir,
-                    lighting_params_dir,
-                ]
-            )
+            for path in files:
+                if not path.is_file():
+                    continue
+                stem = path.stem
+                suffix = path.suffix.lower()
+                if suffix in VALID_SUFFIXES:
+                    source_match = self._source_pattern.match(stem)
+                    if source_match:
+                        source_files[source_match.group("pos")] = path
+                        continue
+                    rgb_match = self._rgb_pattern.match(stem)
+                    if rgb_match:
+                        rgb_files[rgb_match.group("pos")] = path
+                        continue
+                    target_match = self._target_pattern.match(stem)
+                    if target_match:
+                        pos_id = target_match.group("pos")
+                        light_id = target_match.group("light")
+                        target_files.setdefault(pos_id, {})[light_id] = path
+                        continue
+                if suffix == ".exr":
+                    depth_match = self._depth_pattern.match(stem)
+                    if depth_match:
+                        depth_files[depth_match.group("pos")] = path
+                        continue
+                if suffix in LIGHTING_PARAM_SUFFIXES:
+                    lighting_match = self._lighting_pattern.match(stem)
+                    if lighting_match:
+                        pos_id = lighting_match.group("pos")
+                        light_id = lighting_match.group("light")
+                        lighting_params_files.setdefault(pos_id, {})[light_id] = path
 
-            source_files = self._index_files(source_dir, VALID_SUFFIXES)
-            rgb_files = self._index_files(rgb_dir, VALID_SUFFIXES)
-            depth_files = self._index_files(depth_dir, VALID_SUFFIXES)
-            lighting_params_files = self._index_files(
-                lighting_params_dir, LIGHTING_PARAM_SUFFIXES
-            )
-            lighting_scale_files = (
-                self._index_files(lighting_scale_dir, VALID_SUFFIXES)
-                if lighting_scale_dir.exists()
-                else {}
-            )
-
-            target_files = [
-                path
-                for path in target_dir.iterdir()
-                if path.is_file() and path.suffix.lower() in VALID_SUFFIXES
-            ]
-
-            for target_path in target_files:
-                stem = target_path.stem
-                source_path = source_files.get(stem)
-                rgb_path = rgb_files.get(stem)
-                depth_path = depth_files.get(stem)
-                lighting_params_path = lighting_params_files.get(stem)
-                if (
-                    source_path is not None
-                    and rgb_path is not None
-                    and depth_path is not None
-                    and lighting_params_path is not None
-                ):
+            for pos_id, light_map in target_files.items():
+                source_path = source_files.get(pos_id)
+                rgb_path = rgb_files.get(pos_id)
+                depth_path = depth_files.get(pos_id)
+                if source_path is None or rgb_path is None or depth_path is None:
+                    continue
+                for light_id, target_path in light_map.items():
+                    if int(light_id) >= 100:
+                        continue
+                    lighting_params_path = lighting_params_files.get(pos_id, {}).get(
+                        light_id
+                    )
+                    if lighting_params_path is None:
+                        continue
                     items.append(
                         {
                             "source": source_path,
@@ -148,7 +148,6 @@ class FillLightingFolderDataset(Dataset):
                             "rgb": rgb_path,
                             "depth": depth_path,
                             "lighting_params": lighting_params_path,
-                            "lighting_scale": lighting_scale_files.get(stem),
                         }
                     )
         return items
@@ -157,9 +156,25 @@ class FillLightingFolderDataset(Dataset):
         image = Image.open(path).convert("RGB")
         return self.rgb_transform(image)
 
-    def _load_gray(self, path: Path) -> torch.Tensor:
-        image = Image.open(path).convert("L")
-        return self.gray_transform(image)
+    def _load_depth(self, path: Path) -> torch.Tensor:
+        depth = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if depth is None:
+            raise ValueError(f"Failed to read depth image: {path}")
+        if depth.ndim == 3:
+            depth = depth[..., 0]
+        depth = depth.astype("float32")
+        depth = depth / 100.0
+        max_val = float(torch.tensor(depth).quantile(0.99).item())
+        depth = depth.clip(min=0.0, max=max_val if max_val > 0 else 0.0)
+        if max_val > 0:
+            depth = depth / max_val
+        depth_tensor = torch.from_numpy(depth).unsqueeze(0)
+        depth_tensor = torch.nn.functional.interpolate(
+            depth_tensor.unsqueeze(0),
+            size=(self.image_size, self.image_size),
+            mode="nearest",
+        ).squeeze(0)
+        return depth_tensor
 
     def _load_lighting_params(self, path: Path) -> torch.Tensor:
         if path.suffix.lower() == ".json":
@@ -177,6 +192,18 @@ class FillLightingFolderDataset(Dataset):
             except ImportError as exc:
                 raise ImportError("numpy is required to load .npy lighting params") from exc
             params = torch.tensor(np.load(path), dtype=torch.float32)
+        elif path.suffix.lower() in {".h5", ".hdf5"}:
+            try:
+                import h5py
+            except ImportError as exc:
+                raise ImportError("h5py is required to load .h5 lighting params") from exc
+            with h5py.File(path, "r") as file:
+                if "lighting_params" in file:
+                    data = file["lighting_params"][()]
+                else:
+                    first_key = next(iter(file.keys()))
+                    data = file[first_key][()]
+            params = torch.tensor(data, dtype=torch.float32)
         else:
             with open(path, "r") as file:
                 content = file.read().replace(",", " ").split()
@@ -197,13 +224,9 @@ class FillLightingFolderDataset(Dataset):
         albedo = self._load_rgb(item["source"])
         target = self._load_rgb(item["target"])
         rgb = self._load_rgb(item["rgb"])
-        depth = self._load_gray(item["depth"])
+        depth = self._load_depth(item["depth"])
         lighting_params = self._load_lighting_params(item["lighting_params"])
-        lighting_scale = (
-            self._load_gray(item["lighting_scale"])
-            if item["lighting_scale"] is not None
-            else torch.ones_like(depth)
-        )
+        lighting_scale = torch.ones_like(depth)
 
         shading = (rgb / albedo.clamp(1e-3, 1.0)).clamp(0.0, 1.0)
 
