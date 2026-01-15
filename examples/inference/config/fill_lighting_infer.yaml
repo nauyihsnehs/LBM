@@ -1,0 +1,14 @@
+train_config: examples/training/config/fill_lighting.yaml
+checkpoint_path: path/to/checkpoint.ckpt
+output_path: ./outputs
+image_size: 512
+num_inference_steps: 1
+unet_input_channels: 10
+conditioning_images_keys: [shading]
+conditioning_masks_keys: [depth, lighting_scale]
+lighting_embedder_config:
+  mapping_size: 256
+  scale: 10.0
+  hidden_dim: 512
+  out_dim: 768
+  seq_len: 1
