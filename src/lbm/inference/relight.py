@@ -9,9 +9,10 @@ from lbm.models.embedders import (
     LatentsConcatEmbedderConfig,
     LightingParamsEmbedder,
     LightingParamsEmbedderConfig,
+    RawConcatEmbedder,
 )
 from lbm.models.lbm import LBMConfig, LBMModel
-from lbm.models.unets import DiffusersUNet2DCondWrapper
+from lbm.models.unets import DiffusersUNet2DCondWrapper, DiffusersUNet2DWrapper
 from lbm.models.vae import AutoencoderKLDiffusers, AutoencoderKLDiffusersConfig
 from lbm.trainer.utils import StateDictAdapter
 
@@ -307,3 +308,96 @@ def build_filllight_model(
         latent_loss_weight=latent_loss_weight,
         pixel_loss_weight=pixel_loss_weight,
     )
+
+
+def build_filllight_refine_model(
+    backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    unet_input_channels: int = 6,
+    unet_output_channels: int = 3,
+    block_out_channels: Optional[List[int]] = None,
+    layers_per_block: int = 2,
+    timestep_sampling: str = "log_normal",
+    selected_timesteps: Optional[List[float]] = None,
+    prob: Optional[List[float]] = None,
+    conditioning_images_keys: Optional[List[str]] = None,
+    conditioning_masks_keys: Optional[List[str]] = None,
+    source_key: str = "source",
+    target_key: str = "target",
+    mask_key: Optional[str] = None,
+    bridge_noise_sigma: float = 0.0,
+    logit_mean: float = 0.0,
+    logit_std: float = 1.0,
+    latent_loss_type: str = "l2",
+    latent_loss_weight: float = 1.0,
+) -> LBMModel:
+    if conditioning_images_keys is None:
+        conditioning_images_keys = ["rgb"]
+
+    if conditioning_masks_keys is None:
+        conditioning_masks_keys = []
+
+    if block_out_channels is None:
+        block_out_channels = [64, 128, 256, 256]
+
+    denoiser = DiffusersUNet2DWrapper(
+        in_channels=unet_input_channels,
+        out_channels=unet_output_channels,
+        down_block_types=["DownBlock2D"] * len(block_out_channels),
+        up_block_types=["UpBlock2D"] * len(block_out_channels),
+        block_out_channels=block_out_channels,
+        layers_per_block=layers_per_block,
+        norm_num_groups=32,
+        act_fn="silu",
+        center_input_sample=False,
+    ).to(torch.bfloat16)
+
+    conditioners = []
+    if conditioning_images_keys or conditioning_masks_keys:
+        concat_embedder_config = LatentsConcatEmbedderConfig(
+            image_keys=conditioning_images_keys,
+            mask_keys=conditioning_masks_keys,
+        )
+        concat_embedder = RawConcatEmbedder(concat_embedder_config)
+        concat_embedder.freeze()
+        conditioners.append(concat_embedder)
+
+    conditioner = ConditionerWrapper(
+        conditioners=conditioners,
+    )
+
+    config = LBMConfig(
+        ucg_keys=None,
+        source_key=source_key,
+        target_key=target_key,
+        mask_key=mask_key,
+        latent_loss_weight=latent_loss_weight,
+        latent_loss_type=latent_loss_type,
+        pixel_loss_type="l2",
+        pixel_loss_weight=0.0,
+        timestep_sampling=timestep_sampling,
+        logit_mean=logit_mean,
+        logit_std=logit_std,
+        selected_timesteps=selected_timesteps,
+        prob=prob,
+        bridge_noise_sigma=bridge_noise_sigma,
+    )
+
+    training_noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        backbone_signature,
+        subfolder="scheduler",
+    )
+    sampling_noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        backbone_signature,
+        subfolder="scheduler",
+    )
+
+    model = LBMModel(
+        config,
+        denoiser=denoiser,
+        training_noise_scheduler=training_noise_scheduler,
+        sampling_noise_scheduler=sampling_noise_scheduler,
+        vae=None,
+        conditioner=conditioner,
+    ).to(torch.bfloat16)
+
+    return model
