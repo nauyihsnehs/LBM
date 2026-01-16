@@ -18,7 +18,7 @@ from lbm.models.vae import AutoencoderKLDiffusers, AutoencoderKLDiffusersConfig
 from lbm.trainer.utils import StateDictAdapter
 
 
-def build_relight_model(
+def _build_relight_model(
     backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
     vae_num_channels: int = 4,
     unet_input_channels: int = 12,
@@ -39,6 +39,7 @@ def build_relight_model(
     latent_loss_type: str = "l2",
     latent_loss_weight: float = 1.0,
     pixel_loss_weight: float = 0.0,
+    cross_attention_dim: Optional[List[int] | int] = None,
 ) -> LBMModel:
     conditioners = []
 
@@ -52,6 +53,9 @@ def build_relight_model(
         backbone_signature,
         torch_dtype=torch.bfloat16,
     )
+
+    if cross_attention_dim is None:
+        cross_attention_dim = pipe.unet.config.cross_attention_dim
 
     denoiser = DiffusersUNet2DCondWrapper(
         in_channels=unet_input_channels,
@@ -81,7 +85,7 @@ def build_relight_model(
         act_fn="silu",
         norm_num_groups=32,
         norm_eps=1e-05,
-        cross_attention_dim=[320, 640, 1280, 1280],
+        cross_attention_dim=cross_attention_dim,
         transformer_layers_per_block=1,
         reverse_transformer_layers_per_block=None,
         encoder_hid_dim=None,
@@ -212,3 +216,96 @@ def build_relight_model(
     ).to(torch.bfloat16)
 
     return model
+
+
+def build_relight_model(
+    backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    vae_num_channels: int = 4,
+    unet_input_channels: int = 12,
+    timestep_sampling: str = "log_normal",
+    selected_timesteps: Optional[List[float]] = None,
+    prob: Optional[List[float]] = None,
+    conditioning_images_keys: Optional[List[str]] = None,
+    conditioning_masks_keys: Optional[List[str]] = None,
+    lighting_conditioning: bool = False,
+    lighting_embedder_config: Optional[dict] = None,
+    source_key: str = "source",
+    target_key: str = "target",
+    mask_key: Optional[str] = None,
+    bridge_noise_sigma: float = 0.0,
+    logit_mean: float = 0.0,
+    logit_std: float = 1.0,
+    pixel_loss_type: str = "lpips",
+    latent_loss_type: str = "l2",
+    latent_loss_weight: float = 1.0,
+    pixel_loss_weight: float = 0.0,
+) -> LBMModel:
+    return _build_relight_model(
+        backbone_signature=backbone_signature,
+        vae_num_channels=vae_num_channels,
+        unet_input_channels=unet_input_channels,
+        timestep_sampling=timestep_sampling,
+        selected_timesteps=selected_timesteps,
+        prob=prob,
+        conditioning_images_keys=conditioning_images_keys,
+        conditioning_masks_keys=conditioning_masks_keys,
+        lighting_conditioning=lighting_conditioning,
+        lighting_embedder_config=lighting_embedder_config,
+        source_key=source_key,
+        target_key=target_key,
+        mask_key=mask_key,
+        bridge_noise_sigma=bridge_noise_sigma,
+        logit_mean=logit_mean,
+        logit_std=logit_std,
+        pixel_loss_type=pixel_loss_type,
+        latent_loss_type=latent_loss_type,
+        latent_loss_weight=latent_loss_weight,
+        pixel_loss_weight=pixel_loss_weight,
+        cross_attention_dim=[320, 640, 1280, 1280],
+    )
+
+
+def build_filllight_model(
+    backbone_signature: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    vae_num_channels: int = 4,
+    unet_input_channels: int = 12,
+    timestep_sampling: str = "log_normal",
+    selected_timesteps: Optional[List[float]] = None,
+    prob: Optional[List[float]] = None,
+    conditioning_images_keys: Optional[List[str]] = None,
+    conditioning_masks_keys: Optional[List[str]] = None,
+    lighting_conditioning: bool = True,
+    lighting_embedder_config: Optional[dict] = None,
+    source_key: str = "source",
+    target_key: str = "target",
+    mask_key: Optional[str] = None,
+    bridge_noise_sigma: float = 0.0,
+    logit_mean: float = 0.0,
+    logit_std: float = 1.0,
+    pixel_loss_type: str = "lpips",
+    latent_loss_type: str = "l2",
+    latent_loss_weight: float = 1.0,
+    pixel_loss_weight: float = 0.0,
+) -> LBMModel:
+    return _build_relight_model(
+        backbone_signature=backbone_signature,
+        vae_num_channels=vae_num_channels,
+        unet_input_channels=unet_input_channels,
+        timestep_sampling=timestep_sampling,
+        selected_timesteps=selected_timesteps,
+        prob=prob,
+        conditioning_images_keys=conditioning_images_keys,
+        conditioning_masks_keys=conditioning_masks_keys,
+        lighting_conditioning=lighting_conditioning,
+        lighting_embedder_config=lighting_embedder_config,
+        source_key=source_key,
+        target_key=target_key,
+        mask_key=mask_key,
+        bridge_noise_sigma=bridge_noise_sigma,
+        logit_mean=logit_mean,
+        logit_std=logit_std,
+        pixel_loss_type=pixel_loss_type,
+        latent_loss_type=latent_loss_type,
+        latent_loss_weight=latent_loss_weight,
+        pixel_loss_weight=pixel_loss_weight,
+    )
