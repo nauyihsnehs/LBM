@@ -25,10 +25,9 @@ VALID_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 class FillLightingRefineFolderDataset(Dataset):
-    def __init__(self, root_dir, image_size=1024, source_image_size=512, random_flip=False):
+    def __init__(self, root_dir, image_size=1024, random_flip=False):
         self.root_dir = Path(root_dir)
         self.image_size = image_size
-        self.source_image_size = source_image_size
         self.random_flip = random_flip
 
         self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
@@ -47,10 +46,6 @@ class FillLightingRefineFolderDataset(Dataset):
         )
         self.source_transform = transforms.Compose(
             [
-                transforms.Resize(
-                    (source_image_size, source_image_size),
-                    interpolation=InterpolationMode.BICUBIC,
-                ),
                 transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
                 transforms.ToTensor(),
             ]
@@ -139,20 +134,17 @@ def get_dataloaders(
     validation_data_root,
     batch_size,
     image_size=1024,
-    source_image_size=512,
     num_workers=4,
     train_random_flip=True,
 ):
     train_dataset = FillLightingRefineFolderDataset(
         root_dir=train_data_root,
         image_size=image_size,
-        source_image_size=source_image_size,
         random_flip=train_random_flip,
     )
     validation_dataset = FillLightingRefineFolderDataset(
         root_dir=validation_data_root,
         image_size=image_size,
-        source_image_size=source_image_size,
     )
 
     train_loader = DataLoader(
@@ -204,7 +196,6 @@ def main(
     conditioning_images_keys=None,
     conditioning_masks_keys=None,
     image_size=1024,
-    source_image_size=512,
     num_workers=4,
     train_random_flip=True,
     config_yaml=None,
@@ -250,7 +241,6 @@ def main(
         validation_data_root=validation_data_root,
         batch_size=batch_size,
         image_size=image_size,
-        source_image_size=source_image_size,
         num_workers=num_workers,
         train_random_flip=train_random_flip,
     )

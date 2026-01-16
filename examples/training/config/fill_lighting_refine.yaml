@@ -20,7 +20,6 @@ target_key: target
 train_data_root: E:\evermotion\train-set
 validation_data_root: E:\evermotion\val-set
 image_size: 1024
-source_image_size: 512
 num_workers: 4
 train_random_flip: true
 
