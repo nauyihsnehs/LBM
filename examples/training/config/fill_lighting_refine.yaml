@@ -1,0 +1,31 @@
+# wandb
+wandb_project: lbm-fill-lighting-refine
+backbone_signature: stable-diffusion-v1-5/stable-diffusion-v1-5
+unet_input_channels: 6
+unet_output_channels: 3
+timestep_sampling: log_normal
+pixel_loss_type: l2
+pixel_loss_weight: 0.0
+latent_loss_type: l2
+latent_loss_weight: 1.0
+bridge_noise_sigma: 0.005
+source_key: source
+target_key: target
+block_out_channels: [64, 128, 256, 256]
+layers_per_block: 2
+
+# DATA ROOTS
+train_data_root: path/to/train
+validation_data_root: path/to/validation
+image_size: 1024
+num_workers: 4
+train_random_flip: true
+
+batch_size: 1
+learning_rate: 5e-5
+optimizer: AdamW
+num_steps: [1, 2, 4]
+log_interval: 200
+resume_from_checkpoint: true
+max_epochs: 50
+save_ckpt_path: ./checkpoints
