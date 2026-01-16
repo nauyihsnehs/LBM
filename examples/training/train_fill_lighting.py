@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
-from lbm.inference.relight import build_relight_model
+from lbm.inference.relight import build_filllight_model
 from lbm.trainer import TrainingConfig, TrainingPipeline
 from lbm.trainer.loggers import WandbSampleLogger
 
@@ -372,7 +372,7 @@ def main(
     if conditioning_masks_keys is None:
         conditioning_masks_keys = ["depth", "lighting_scale"]
 
-    model = build_relight_model(
+    model = build_filllight_model(
         backbone_signature=backbone_signature,
         vae_num_channels=vae_num_channels,
         unet_input_channels=unet_input_channels,

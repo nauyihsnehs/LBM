@@ -10,7 +10,7 @@ from PIL import Image
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode, ToPILImage
 
-from lbm.inference.relight import build_relight_model
+from lbm.inference.relight import build_filllight_model
 
 VALID_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
@@ -179,7 +179,7 @@ def run_inference(config: dict) -> None:
         else torch.float16
     )
 
-    model = build_relight_model(
+    model = build_filllight_model(
         backbone_signature=config.get(
             "backbone_signature", "stable-diffusion-v1-5/stable-diffusion-v1-5"
         ),
