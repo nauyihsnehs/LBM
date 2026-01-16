@@ -95,8 +95,8 @@ class DiffusersUNet2DCondWrapper(UNet2DConditionModel):
         # assert "crossattn" in conditioning["cond"], "crossattn must be in conditionings"
 
         class_labels = conditioning["cond"].get("vector", None)
-        crossattn = conditioning["cond"].get("crossattn", None)
-        concat = conditioning["cond"].get("concat", None)
+        crossattn = conditioning["cond"].get("crossattn", None) # B,1,768
+        concat = conditioning["cond"].get("concat", None) # B,C,64,64
 
         # concat conditioning
         if concat is not None:

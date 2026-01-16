@@ -43,16 +43,16 @@ class LBMModel(BaseModel):
         return cls(config=config)
 
     def __init__(
-        self,
-        config: LBMConfig,
-        denoiser: Union[
-            DiffusersUNet2DWrapper,
-            DiffusersUNet2DCondWrapper,
-        ] = None,
-        training_noise_scheduler: FlowMatchEulerDiscreteScheduler = None,
-        sampling_noise_scheduler: FlowMatchEulerDiscreteScheduler = None,
-        vae: AutoencoderKLDiffusers = None,
-        conditioner: ConditionerWrapper = None,
+            self,
+            config: LBMConfig,
+            denoiser: Union[
+                DiffusersUNet2DWrapper,
+                DiffusersUNet2DCondWrapper,
+            ] = None,
+            training_noise_scheduler: FlowMatchEulerDiscreteScheduler = None,
+            sampling_noise_scheduler: FlowMatchEulerDiscreteScheduler = None,
+            vae: AutoencoderKLDiffusers = None,
+            conditioner: ConditionerWrapper = None,
     ):
         BaseModel.__init__(self, config)
 
@@ -94,7 +94,6 @@ class LBMModel(BaseModel):
             self.conditioner.on_fit_start(device=device, *args, **kwargs)
 
     def forward(self, batch: Dict[str, Any], step=0, batch_idx=0, *args, **kwargs):
-
         self.num_iterations += 1
 
         # Get inputs/latents
@@ -121,12 +120,7 @@ class LBMModel(BaseModel):
             valid_mask_for_latent = torch.ones_like(z).bool()
 
         source_image = batch[self.source_key]
-        source_image = torch.nn.functional.interpolate(
-            source_image,
-            size=batch[self.target_key].shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        ).to(z.dtype)
+
         if self.vae is not None:
             z_source = self.vae.encode(source_image)
 
@@ -138,18 +132,15 @@ class LBMModel(BaseModel):
 
         # Sample a timestep
         timestep = self._timestep_sampling(n_samples=z.shape[0], device=z.device)
-        # sigmas = None
 
         # Create interpolant
-        sigmas = self._get_sigmas(
-            self.training_noise_scheduler, timestep, n_dim=4, device=z.device
-        )
+        sigmas = self._get_sigmas(self.training_noise_scheduler, timestep, n_dim=4, device=z.device)
         noisy_sample = (
-            sigmas * z_source
-            + (1.0 - sigmas) * z
-            + self.bridge_noise_sigma
-            * (sigmas * (1.0 - sigmas)) ** 0.5
-            * torch.randn_like(z)
+                sigmas * z_source
+                + (1.0 - sigmas) * z
+                + self.bridge_noise_sigma
+                * (sigmas * (1.0 - sigmas)) ** 0.5
+                * torch.randn_like(z)
         )
 
         for i, t in enumerate(timestep):
@@ -179,50 +170,28 @@ class LBMModel(BaseModel):
             latent_recon_loss = torch.zeros_like(loss)
 
         if self.pixel_loss_weight > 0:
-            denoised_sample = self._predicted_x_0(
-                model_output=prediction,
-                sample=noisy_sample,
-                sigmas=sigmas,
-            )
-            pixel_loss = self.pixel_loss(
-                denoised_sample, target_pixels.detach(), valid_mask
-            )
+            denoised_sample = self._predicted_x_0(model_output=prediction, sample=noisy_sample, sigmas=sigmas)
+            pixel_loss = self.pixel_loss(denoised_sample, target_pixels.detach(), valid_mask)
             loss += self.pixel_loss_weight * pixel_loss
 
         else:
             pixel_loss = torch.zeros_like(latent_recon_loss)
 
-        return {
-            "loss": loss.mean(),
-            "latent_recon_loss": latent_recon_loss,
-            "pixel_recon_loss": pixel_loss.mean(),
-            "predicted_hr": denoised_sample,
-            "noisy_sample": noisy_sample,
-        }
+        return {"loss": loss.mean(),
+                "latent_recon_loss": latent_recon_loss,
+                "pixel_recon_loss": pixel_loss.mean(),
+                "predicted_hr": denoised_sample,
+                "noisy_sample": noisy_sample}
 
     def latent_loss(self, prediction, model_input, valid_latent_mask):
         if self.latent_loss_type == "l2":
-            return torch.mean(
-                (
-                    (prediction * valid_latent_mask - model_input * valid_latent_mask)
-                    ** 2
-                ).reshape(model_input.shape[0], -1),
-                1,
-            )
+            return torch.mean(((prediction * valid_latent_mask - model_input * valid_latent_mask) ** 2).reshape(model_input.shape[0], -1), 1)
         elif self.latent_loss_type == "l1":
-            return torch.mean(
-                torch.abs(
-                    prediction * valid_latent_mask - model_input * valid_latent_mask
-                ).reshape(model_input.shape[0], -1),
-                1,
-            )
+            return torch.mean(torch.abs(prediction * valid_latent_mask - model_input * valid_latent_mask).reshape(model_input.shape[0], -1), 1)
         else:
-            raise NotImplementedError(
-                f"Loss type {self.latent_loss_type} not implemented"
-            )
+            raise NotImplementedError(f"Loss type {self.latent_loss_type} not implemented")
 
     def pixel_loss(self, prediction, model_input, valid_mask):
-
         latent_crop = self.pixel_loss_max_size // self.vae.downsampling_factor
         input_crop = self.pixel_loss_max_size
 
@@ -245,132 +214,62 @@ class LBMModel(BaseModel):
         input_offset_h = offset_h * self.vae.downsampling_factor
         input_offset_w = offset_w * self.vae.downsampling_factor
 
-        prediction = prediction[
-            :,
-            :,
-            crop_h
-            - offset_h : min(crop_h - offset_h + latent_crop, prediction.shape[2]),
-            crop_w
-            - offset_w : min(crop_w - offset_w + latent_crop, prediction.shape[3]),
-        ]
+        prediction = prediction[:, :,
+        crop_h - offset_h: min(crop_h - offset_h + latent_crop, prediction.shape[2]),
+        crop_w - offset_w: min(crop_w - offset_w + latent_crop, prediction.shape[3])]
 
-        model_input = model_input[
-            :,
-            :,
-            input_crop_h
-            - input_offset_h : min(
-                input_crop_h - input_offset_h + input_crop, model_input.shape[2]
-            ),
-            input_crop_w
-            - input_offset_w : min(
-                input_crop_w - input_offset_w + input_crop, model_input.shape[3]
-            ),
-        ]
+        model_input = model_input[:, :,
+        input_crop_h - input_offset_h: min(input_crop_h - input_offset_h + input_crop, model_input.shape[2]),
+        input_crop_w - input_offset_w: min(input_crop_w - input_offset_w + input_crop, model_input.shape[3])]
 
-        valid_mask = valid_mask[
-            :,
-            :,
-            input_crop_h
-            - input_offset_h : min(
-                input_crop_h - input_offset_h + input_crop, valid_mask.shape[2]
-            ),
-            input_crop_w
-            - input_offset_w : min(
-                input_crop_w - input_offset_w + input_crop, valid_mask.shape[3]
-            ),
-        ]
+        valid_mask = valid_mask[:, :,
+        input_crop_h - input_offset_h: min(input_crop_h - input_offset_h + input_crop, valid_mask.shape[2]),
+        input_crop_w - input_offset_w: min(input_crop_w - input_offset_w + input_crop, valid_mask.shape[3])]
 
         decoded_prediction = self.vae.decode(prediction).clamp(-1, 1)
 
         if self.pixel_loss_type == "l2":
-            return torch.mean(
-                (
-                    (decoded_prediction * valid_mask - model_input * valid_mask) ** 2
-                ).reshape(model_input.shape[0], -1),
-                1,
-            )
+            return torch.mean(((decoded_prediction * valid_mask - model_input * valid_mask) ** 2).reshape(model_input.shape[0], -1), 1, )
 
         elif self.pixel_loss_type == "l1":
-            return torch.mean(
-                torch.abs(
-                    decoded_prediction * valid_mask - model_input * valid_mask
-                ).reshape(model_input.shape[0], -1),
-                1,
-            )
+            return torch.mean(torch.abs(decoded_prediction * valid_mask - model_input * valid_mask).reshape(model_input.shape[0], -1), 1, )
 
         elif self.pixel_loss_type == "lpips":
-            return self.lpips_loss(
-                decoded_prediction * valid_mask, model_input * valid_mask
-            ).mean()
+            return self.lpips_loss(decoded_prediction * valid_mask, model_input * valid_mask).mean()
 
-    def _get_conditioning(
-        self,
-        batch: Dict[str, Any],
-        ucg_keys: List[str] = None,
-        set_ucg_rate_zero=False,
-        *args,
-        **kwargs,
-    ):
+    def _get_conditioning(self, batch: Dict[str, Any], ucg_keys: List[str] = None, set_ucg_rate_zero=False, *args, **kwargs):
         """
         Get the conditionings
         """
         if self.conditioner is not None:
-            return self.conditioner(
-                batch,
-                ucg_keys=ucg_keys,
-                set_ucg_rate_zero=set_ucg_rate_zero,
-                vae=self.vae,
-                *args,
-                **kwargs,
-            )
+            return self.conditioner(batch, ucg_keys=ucg_keys, set_ucg_rate_zero=set_ucg_rate_zero, vae=self.vae, *args, **kwargs)
         else:
             return None
 
     def _timestep_sampling(self, n_samples=1, device="cpu"):
         if self.timestep_sampling == "uniform":
-            idx = torch.randint(
-                0,
-                self.training_noise_scheduler.config.num_train_timesteps,
-                (n_samples,),
-                device="cpu",
-            )
+            idx = torch.randint(0, self.training_noise_scheduler.config.num_train_timesteps, (n_samples,), device="cpu")
             return self.training_noise_scheduler.timesteps[idx].to(device=device)
 
         elif self.timestep_sampling == "log_normal":
-            u = torch.normal(
-                mean=self.logit_mean,
-                std=self.logit_std,
-                size=(n_samples,),
-                device="cpu",
-            )
+            u = torch.normal(mean=self.logit_mean, std=self.logit_std, size=(n_samples,), device="cpu")
             u = torch.nn.functional.sigmoid(u)
-            indices = (
-                u * self.training_noise_scheduler.config.num_train_timesteps
-            ).long()
+            indices = (u * self.training_noise_scheduler.config.num_train_timesteps).long()
             return self.training_noise_scheduler.timesteps[indices].to(device=device)
 
         elif self.timestep_sampling == "custom_timesteps":
             idx = np.random.choice(len(self.selected_timesteps), n_samples, p=self.prob)
 
-            return torch.tensor(
-                self.selected_timesteps, device=device, dtype=torch.long
-            )[idx]
+            return torch.tensor(self.selected_timesteps, device=device, dtype=torch.long)[idx]
 
-    def _predicted_x_0(
-        self,
-        model_output,
-        sample,
-        sigmas=None,
-    ):
+    def _predicted_x_0(self, model_output, sample, sigmas=None):
         """
         Predict x_0, the orinal denoised sample, using the model output and the timesteps depending on the prediction type.
         """
         pred_x_0 = sample - model_output * sigmas
         return pred_x_0
 
-    def _get_sigmas(
-        self, scheduler, timesteps, n_dim=4, dtype=torch.float32, device="cpu"
-    ):
+    def _get_sigmas(self, scheduler, timesteps, n_dim=4, dtype=torch.float32, device="cpu"):
         sigmas = scheduler.sigmas.to(device=device, dtype=dtype)
         schedule_timesteps = scheduler.timesteps.to(device)
         timesteps = timesteps.to(device)
@@ -383,67 +282,44 @@ class LBMModel(BaseModel):
 
     @torch.no_grad()
     def sample(
-        self,
-        z: torch.Tensor,
-        num_steps: int = 20,
-        conditioner_inputs: Optional[Dict[str, Any]] = None,
-        max_samples: Optional[int] = None,
-        verbose: bool = False,
+            self,
+            z: torch.Tensor,
+            num_steps: int = 20,
+            conditioner_inputs: Optional[Dict[str, Any]] = None,
+            max_samples: Optional[int] = None,
+            verbose: bool = False,
     ):
-        self.sampling_noise_scheduler.set_timesteps(
-            sigmas=np.linspace(1, 1 / num_steps, num_steps)
-        )
+        self.sampling_noise_scheduler.set_timesteps(sigmas=np.linspace(1, 1 / num_steps, num_steps))
 
         sample = z
 
         # Get conditioning
-        conditioning = self._get_conditioning(
-            conditioner_inputs, set_ucg_rate_zero=True, device=z.device
-        )
+        conditioning = self._get_conditioning(conditioner_inputs, set_ucg_rate_zero=True, device=z.device)
 
         # If max_samples parameter is provided, limit the number of samples
         if max_samples is not None:
             sample = sample[:max_samples]
 
         if conditioning:
-            conditioning["cond"] = {
-                k: v[:max_samples] for k, v in conditioning["cond"].items()
-            }
+            conditioning["cond"] = {k: v[:max_samples] for k, v in conditioning["cond"].items()}
 
-        for i, t in tqdm(
-            enumerate(self.sampling_noise_scheduler.timesteps), disable=not verbose
-        ):
+        for i, t in tqdm(enumerate(self.sampling_noise_scheduler.timesteps), disable=not verbose):
             if hasattr(self.sampling_noise_scheduler, "scale_model_input"):
-                denoiser_input = self.sampling_noise_scheduler.scale_model_input(
-                    sample, t
-                )
-
+                denoiser_input = self.sampling_noise_scheduler.scale_model_input(sample, t)
             else:
                 denoiser_input = sample
 
             # Predict noise level using denoiser using conditionings
-            pred = self.denoiser(
-                sample=denoiser_input,
-                timestep=t.to(z.device).repeat(denoiser_input.shape[0]),
-                conditioning=conditioning,
-            )
+            pred = self.denoiser(sample=denoiser_input,
+                                 timestep=t.to(z.device).repeat(denoiser_input.shape[0]),
+                                 conditioning=conditioning)
 
             # Make one step on the reverse diffusion process
-            sample = self.sampling_noise_scheduler.step(
-                pred, t, sample, return_dict=False
-            )[0]
+            sample = self.sampling_noise_scheduler.step(pred, t, sample, return_dict=False)[0]
             if i < len(self.sampling_noise_scheduler.timesteps) - 1:
-                timestep = (
-                    self.sampling_noise_scheduler.timesteps[i + 1]
-                    .to(z.device)
-                    .repeat(sample.shape[0])
-                )
-                sigmas = self._get_sigmas(
-                    self.sampling_noise_scheduler, timestep, n_dim=4, device=z.device
-                )
-                sample = sample + self.bridge_noise_sigma * (
-                    sigmas * (1.0 - sigmas)
-                ) ** 0.5 * torch.randn_like(sample)
+                timestep = (self.sampling_noise_scheduler.timesteps[i + 1].to(z.device).repeat(sample.shape[0]))
+                sigmas = self._get_sigmas(self.sampling_noise_scheduler, timestep, n_dim=4, device=z.device)
+                sample = sample + self.bridge_noise_sigma * (sigmas * (1.0 - sigmas)) ** 0.5 * torch.randn_like(sample)
                 sample = sample.to(z.dtype)
 
         if self.vae is not None:
@@ -455,11 +331,11 @@ class LBMModel(BaseModel):
         return decoded_sample
 
     def log_samples(
-        self,
-        batch: Dict[str, Any],
-        input_shape: Optional[Tuple[int, int, int]] = None,
-        max_samples: Optional[int] = None,
-        num_steps: Union[int, List[int]] = 20,
+            self,
+            batch: Dict[str, Any],
+            input_shape: Optional[Tuple[int, int, int]] = None,
+            max_samples: Optional[int] = None,
+            num_steps: Union[int, List[int]] = 20,
     ):
         if isinstance(num_steps, int):
             num_steps = [num_steps]
@@ -482,9 +358,7 @@ class LBMModel(BaseModel):
                     input_shape[1] // self.vae.downsampling_factor,
                 )
             else:
-                raise ValueError(
-                    "input_shape must be passed when no VAE is used in the model"
-                )
+                raise ValueError("input_shape must be passed when no VAE is used in the model")
 
         for num_step in num_steps:
             source_image = batch[self.source_key]
@@ -496,16 +370,10 @@ class LBMModel(BaseModel):
             ).to(dtype=self.dtype)
             if self.vae is not None:
                 z = self.vae.encode(source_image)
-
             else:
                 z = source_image
 
             with torch.autocast(dtype=self.dtype, device_type="cuda"):
-                logs[f"samples_{num_step}_steps"] = self.sample(
-                    z,
-                    num_steps=num_step,
-                    conditioner_inputs=batch,
-                    max_samples=N,
-                )
+                logs[f"samples_{num_step}_steps"] = self.sample(z, num_steps=num_step, conditioner_inputs=batch, max_samples=N)
 
         return logs

@@ -1,8 +1,4 @@
-from __future__ import annotations
-
 from pydantic.dataclasses import dataclass
-from typing import Any, Dict
-
 import torch
 from torch import nn
 
@@ -12,12 +8,12 @@ from .base import BaseConditioner, BaseConditionerConfig
 class GaussianFourierFeatures(nn.Module):
     """Gaussian Fourier feature mapping for [batch, features] inputs."""
 
-    def __init__(self, in_features: int, mapping_size: int = 256, scale: float = 10.0):
+    def __init__(self, in_features, mapping_size=256, scale=10.0):
         super().__init__()
         b = torch.randn(mapping_size, in_features) * scale
         self.register_buffer("B", b)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         x_proj = 2 * torch.pi * x @ self.B.T
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
 
@@ -39,11 +35,7 @@ class LightingParamsEmbedder(BaseConditioner):
 
     def __init__(self, config: LightingParamsEmbedderConfig):
         BaseConditioner.__init__(self, config)
-        self.fourier = GaussianFourierFeatures(
-            in_features=7,
-            mapping_size=config.mapping_size,
-            scale=config.scale,
-        )
+        self.fourier = GaussianFourierFeatures(in_features=7, mapping_size=config.mapping_size, scale=config.scale)
         self.mlp = nn.Sequential(
             nn.Linear(config.mapping_size * 2, config.hidden_dim),
             nn.SiLU(),
@@ -54,25 +46,17 @@ class LightingParamsEmbedder(BaseConditioner):
         self.out_dim = config.out_dim
         self.seq_len = config.seq_len
 
-    def forward(
-        self,
-        batch: Dict[str, Any],
-        force_zero_embedding: bool = False,
-        *args,
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, batch, force_zero_embedding=False, *args, **kwargs):
         lighting_params = batch[self.input_key]
         if lighting_params.dim() == 1:
             lighting_params = lighting_params.unsqueeze(0)
 
         if force_zero_embedding:
-            zeros = torch.zeros(
-                lighting_params.shape[0],
-                self.seq_len,
-                self.out_dim,
-                device=lighting_params.device,
-                dtype=lighting_params.dtype,
-            )
+            zeros = torch.zeros(lighting_params.shape[0],
+                                self.seq_len,
+                                self.out_dim,
+                                device=lighting_params.device,
+                                dtype=lighting_params.dtype)
             return {self.dim2outputkey[zeros.dim()]: zeros}
 
         features = self.fourier(lighting_params)
