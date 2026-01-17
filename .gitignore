@@ -16,3 +16,5 @@ envs/*
 *.wandb
 *.ckpt
 *.sh
+*.pt
+*.pth
