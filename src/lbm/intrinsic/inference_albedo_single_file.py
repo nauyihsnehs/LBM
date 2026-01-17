@@ -50,8 +50,9 @@ def _make_resnet_backbone(resnet):
 
 def _make_pretrained_resnext101_wsl(use_pretrained, in_chan=3, group_width=8):
     resnet = torch.hub.load(
-        "facebookresearch/WSL-Images",
-        f"resnext101_32x{group_width}d_wsl",
+        "intrinsic_models",
+        # "facebookresearch/WSL-Images",
+        f"resnext101_32x{group_width}d_wsl", source='local'
     )
     if in_chan != 3:
         resnet.conv1 = torch.nn.Conv2d(in_chan, 64, 7, 2, 3, bias=False)
@@ -72,7 +73,7 @@ def _make_pretrained_efficientnet_lite3(use_pretrained, exportable=False, in_cha
         "rwightman/gen-efficientnet-pytorch",
         "tf_efficientnet_lite3",
         pretrained=use_pretrained,
-        exportable=exportable,
+        exportable=exportable#, source='local',
     )
     if in_chan != 3:
         efficientnet.conv_stem = Conv2dSame(in_chan, 32, kernel_size=(3, 3), stride=(2, 2), bias=False)
@@ -90,14 +91,19 @@ def _make_scratch(in_shape, out_shape, groups=1, expand=False):
         out_shape3 = out_shape * 4
         out_shape4 = out_shape * 8
 
-    scratch.layer1_rn = nn.Conv2d(in_shape[0], out_shape1, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    scratch.layer2_rn = nn.Conv2d(in_shape[1], out_shape2, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    scratch.layer3_rn = nn.Conv2d(in_shape[2], out_shape3, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    scratch.layer4_rn = nn.Conv2d(in_shape[3], out_shape4, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
+    scratch.layer1_rn = nn.Conv2d(in_shape[0], out_shape1, kernel_size=3, stride=1, padding=1, bias=False,
+                                  groups=groups)
+    scratch.layer2_rn = nn.Conv2d(in_shape[1], out_shape2, kernel_size=3, stride=1, padding=1, bias=False,
+                                  groups=groups)
+    scratch.layer3_rn = nn.Conv2d(in_shape[2], out_shape3, kernel_size=3, stride=1, padding=1, bias=False,
+                                  groups=groups)
+    scratch.layer4_rn = nn.Conv2d(in_shape[3], out_shape4, kernel_size=3, stride=1, padding=1, bias=False,
+                                  groups=groups)
     return scratch
 
 
-def _make_encoder(backbone, features, use_pretrained, groups=1, expand=False, exportable=True, in_chan=3, group_width=8):
+def _make_encoder(backbone, features, use_pretrained, groups=1, expand=False, exportable=True, in_chan=3,
+                  group_width=8):
     if backbone == "resnext101_wsl":
         pretrained = _make_pretrained_resnext101_wsl(use_pretrained, in_chan=in_chan, group_width=group_width)
         scratch = _make_scratch([256, 512, 1024, 2048], features, groups=groups, expand=expand)
@@ -207,7 +213,8 @@ class FeatureFusionBlock_custom(nn.Module):
 
 
 class MidasNet(BaseModel):
-    def __init__(self, pretrained=False, features=256, input_channels=3, output_channels=1, group_width=8, last_residual=False):
+    def __init__(self, pretrained=False, features=256, input_channels=3, output_channels=1, group_width=8,
+                 last_residual=False):
         super().__init__()
         self.out_chan = output_channels
         self.last_res = last_residual
@@ -293,13 +300,18 @@ class MidasNet_small(BaseModel):
             features3 = features * 4
             features4 = features * 8
 
-        self.pretrained, self.scratch = _make_encoder(self.backbone, features, pretrained, in_chan=input_channels, groups=self.groups, expand=self.expand, exportable=exportable)
+        self.pretrained, self.scratch = _make_encoder(self.backbone, features, pretrained, in_chan=input_channels,
+                                                      groups=self.groups, expand=self.expand, exportable=exportable)
         self.scratch.activation = nn.ReLU(False)
 
-        self.scratch.refinenet4 = FeatureFusionBlock_custom(features4, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
-        self.scratch.refinenet3 = FeatureFusionBlock_custom(features3, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
-        self.scratch.refinenet2 = FeatureFusionBlock_custom(features2, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
-        self.scratch.refinenet1 = FeatureFusionBlock_custom(features1, self.scratch.activation, deconv=False, bn=False, expand=False, align_corners=align_corners)
+        self.scratch.refinenet4 = FeatureFusionBlock_custom(features4, self.scratch.activation, deconv=False, bn=False,
+                                                            expand=self.expand, align_corners=align_corners)
+        self.scratch.refinenet3 = FeatureFusionBlock_custom(features3, self.scratch.activation, deconv=False, bn=False,
+                                                            expand=self.expand, align_corners=align_corners)
+        self.scratch.refinenet2 = FeatureFusionBlock_custom(features2, self.scratch.activation, deconv=False, bn=False,
+                                                            expand=self.expand, align_corners=align_corners)
+        self.scratch.refinenet1 = FeatureFusionBlock_custom(features1, self.scratch.activation, deconv=False, bn=False,
+                                                            expand=False, align_corners=align_corners)
 
         output_act = nn.Sigmoid()
 
@@ -538,9 +550,12 @@ def run_pipeline(models, img_arr, base_size=384, device="cuda"):
     scale = base_size / max(orig_sz)
     base_sz = (round_32(orig_sz[0] * scale), round_32(orig_sz[1] * scale))
 
-    in_img_luv = torch.nn.functional.interpolate(in_img_luv, size=base_sz, mode="bilinear", align_corners=True, antialias=True)
-    in_alb_luv = torch.nn.functional.interpolate(in_alb_luv, size=base_sz, mode="bilinear", align_corners=True, antialias=True)
-    in_gry_shd = torch.nn.functional.interpolate(net_shd, size=base_sz, mode="bilinear", align_corners=True, antialias=True)
+    in_img_luv = torch.nn.functional.interpolate(in_img_luv, size=base_sz, mode="bilinear", align_corners=True,
+                                                 antialias=True)
+    in_alb_luv = torch.nn.functional.interpolate(in_alb_luv, size=base_sz, mode="bilinear", align_corners=True,
+                                                 antialias=True)
+    in_gry_shd = torch.nn.functional.interpolate(net_shd, size=base_sz, mode="bilinear", align_corners=True,
+                                                 antialias=True)
 
     inp = torch.cat([in_img_luv, in_gry_shd, in_alb_luv], 1)
 
@@ -563,6 +578,7 @@ def run_pipeline(models, img_arr, base_size=384, device="cuda"):
 
     hr_alb = pred_alb.squeeze(0).permute(1, 2, 0).detach().cpu().numpy()
     return {"hr_alb": hr_alb}
+
 
 def load_image(path):
     img = Image.open(path).convert("RGB")

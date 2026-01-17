@@ -51,7 +51,7 @@ def main(
     data_root: str,
     output_root: Optional[str] = None,
     device: Optional[str] = None,
-    base_size: int = 4,
+    base_size: int = 512,
     robedo_suffix: str = "_rlb",
     robedo_extension: str = ".png",
 ):
@@ -87,6 +87,7 @@ def main(
             robedo_image = to_pil(robedo_tensor)
             robedo_image.save(robedo_path)
             processed += 1
+            print(f'{person_dir} -> {rgb_path} -> {robedo_path}')
 
     logger.info("Generated %d rough albedo images.", processed)
 

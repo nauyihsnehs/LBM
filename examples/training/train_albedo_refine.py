@@ -9,7 +9,7 @@ import torch
 import yaml
 from PIL import Image
 from pytorch_lightning import Trainer, loggers
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -223,11 +223,12 @@ def main(
         resume_from_checkpoint: bool = True,
         max_epochs: int = 100,
         bridge_noise_sigma: float = 0.005,
-        save_interval: int = 1000,
+        # save_interval: int = 1000,
         devices: Optional[int] = None,
         num_nodes: int = 1,
-        path_config: str = None,
+        # path_config: str = None,
 ):
+    os.mkdirs(save_ckpt_path, exist_ok=True)
     if conditioning_images_keys is None:
         conditioning_images_keys = ["robedo"]
 
@@ -336,10 +337,11 @@ def main(
         callbacks=[
             WandbSampleLogger(log_batch_freq=log_interval),
             LearningRateMonitor(logging_interval="step"),
+            TQDMProgressBar(refresh_rate=1),
             ModelCheckpoint(
                 dirpath=save_ckpt_path,
-                every_n_epochs=100,
-                save_last=True,
+                every_n_epochs=1,
+                save_last=False,
                 save_top_k=-1,
                 save_weights_only=False,
             ),
@@ -349,6 +351,7 @@ def main(
         limit_val_batches=2,
         check_val_every_n_epoch=1,
         max_epochs=max_epochs,
+        enable_progress_bar=True,
     )
 
     trainer.fit(
@@ -362,7 +365,7 @@ def main_from_config(path_config: str = None):
     logging.info(
         f"Running main with config: {yaml.dump(config, default_flow_style=False)}"
     )
-    main(**config, config_yaml=config, path_config=path_config)
+    main(**config, config_yaml=config)
 
 
 if __name__ == "__main__":

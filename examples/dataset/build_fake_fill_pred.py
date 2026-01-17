@@ -1,11 +1,9 @@
 # build_fake_fill_pred.py
 import argparse
-import os
 import re
 from pathlib import Path
 
 from PIL import Image
-
 
 RGB_RE = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb\.png$", re.IGNORECASE)
 
@@ -45,11 +43,13 @@ def process_folder(src_root: Path, dry_run: bool = False) -> None:
         if dry_run:
             print(f"[DRY] {rgb_path} -> {out_path}")
             continue
+        else:
+            print(f"[DRY] {rgb_path} -> {out_path}")
 
         try:
             with Image.open(rgb_path) as im:
                 w, h = im.size
-                new_w, new_h = w // 2, h // 2
+                new_w, new_h = w // 4, h // 4
                 if new_w < 1 or new_h < 1:
                     print(f"[SKIP] Too small to downsample: {rgb_path} ({w}x{h})")
                     skipped += 1
@@ -80,7 +80,7 @@ def main():
     ap.add_argument(
         "--src",
         # default=r"E:\evermotion\train-set",
-        default=r"E:\evermotion\val-set",
+        default=r"/mnt/data1/ssy/render_people/fill-light-dataset/train/render",
         help="Root folder containing {scene_id:03d}_{human_id:03d}/...",
     )
     ap.add_argument(

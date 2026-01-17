@@ -9,7 +9,7 @@ import torch
 import yaml
 from PIL import Image
 from pytorch_lightning import Trainer, loggers
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -201,6 +201,7 @@ def main(
         num_nodes: int = 1,
         path_config: str = None,
 ):
+    os.makedirs(save_ckpt_path, exist_ok=True)
     model = build_relight_model(
         backbone_signature=backbone_signature,
         vae_num_channels=vae_num_channels,
@@ -304,6 +305,7 @@ def main(
         callbacks=[
             WandbSampleLogger(log_batch_freq=log_interval),
             LearningRateMonitor(logging_interval="step"),
+            TQDMProgressBar(refresh_rate=1),
             ModelCheckpoint(
                 dirpath=save_ckpt_path,
                 every_n_epochs=1,
@@ -318,6 +320,7 @@ def main(
         # val_check_interval=100,
         check_val_every_n_epoch=1,
         max_epochs=max_epochs,
+        enable_progress_bar=True,
     )
 
     trainer.fit(
