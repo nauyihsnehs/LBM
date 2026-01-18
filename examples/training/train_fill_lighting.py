@@ -1,6 +1,7 @@
 import os
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+import random
 import re
 from pathlib import Path
 from typing import Optional
@@ -38,7 +39,9 @@ class FillLightingFolderDataset(Dataset):
         self.random_flip = random_flip
 
         self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
-        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        # self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        self._alb_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_elb$")
         self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
         self._depth_pattern = re.compile(r"^(?P<pos>\d{3})_dpt$")
         self._lighting_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_lgt$")
@@ -63,17 +66,26 @@ class FillLightingFolderDataset(Dataset):
         base_dirs = [path for path in self.root_dir.iterdir() if path.is_dir()]
         for base_dir in sorted(base_dirs):
             files = list(base_dir.iterdir())
-            source_files, rgb_files, depth_files, lighting_params_files, target_files = {}, {}, {}, {}, {}
-
+            # source_files, rgb_files, depth_files, lighting_params_files, target_files = {}, {}, {}, {}, {}
+            alb_files, elb_files, rgb_files, depth_files, lighting_params_files, target_files = {}, {}, {}, {}, {}, {}
             for path in files:
                 if not path.is_file():
                     continue
                 stem = path.stem
                 suffix = path.suffix.lower()
                 if suffix in VALID_SUFFIXES:
-                    source_match = self._source_pattern.match(stem)
-                    if source_match:
-                        source_files[source_match.group("pos")] = path
+                    # source_match = self._source_pattern.match(stem)
+                    # if source_match:
+                    #     source_files[source_match.group("pos")] = path
+                    alb_match = self._alb_pattern.match(stem)
+                    if alb_match:
+                        alb_files[alb_match.group("pos")] = path
+                        continue
+                    elb_match = self._elb_pattern.match(stem)
+                    if elb_match:
+                        pos_id = elb_match.group("pos")
+                        light_id = elb_match.group("light")
+                        elb_files.setdefault(pos_id, {})[light_id] = path
                         continue
                     rgb_match = self._rgb_pattern.match(stem)
                     if rgb_match:
@@ -98,11 +110,14 @@ class FillLightingFolderDataset(Dataset):
                         lighting_params_files.setdefault(pos_id, {})[light_id] = path
 
             for pos_id, light_map in target_files.items():
-                source_path = source_files.get(pos_id)
+                # source_path = source_files.get(pos_id)
+                alb_path = alb_files.get(pos_id)
                 rgb_path = rgb_files.get(pos_id)
                 depth_path = depth_files.get(pos_id)
-                if source_path is None or rgb_path is None or depth_path is None:
+                # if source_path is None or rgb_path is None or depth_path is None:
+                if alb_path is None or rgb_path is None or depth_path is None:
                     continue
+                elb_path = elb_files.get(pos_id, {}).get(light_id)
                 for light_id, target_path in light_map.items():
                     if int(light_id) >= 100:
                         continue
@@ -111,7 +126,9 @@ class FillLightingFolderDataset(Dataset):
                         continue
                     items.append(
                         {
-                            "source": source_path,
+                            # "source": source_path,
+                            "alb_source": alb_path,
+                            "elb_source": elb_path,
                             "target": target_path,
                             "rgb": rgb_path,
                             "depth": depth_path,
@@ -131,7 +148,7 @@ class FillLightingFolderDataset(Dataset):
         if depth.ndim == 3:
             depth = depth[..., 0]
         depth = depth.astype("float32")
-        depth = depth / 100.0  # cm to m
+        # depth = depth / 100.0  # cm to m
         depth[depth >= 100.0] = 0.0
         max_val = float(torch.tensor(depth).quantile(0.99).item())
         depth = depth.clip(min=0.0, max=max_val if max_val > 0 else 0.0)
@@ -164,7 +181,13 @@ class FillLightingFolderDataset(Dataset):
 
     def __getitem__(self, index):
         item = self.items[index]
-        albedo = self._load_rgb(item["source"])
+        # albedo = self._load_rgb(item["source"])
+        elb_path = item["elb_source"]
+        if elb_path is not None and random.random() < 0.5:
+            source_path = elb_path
+        else:
+            source_path = item["alb_source"]
+        albedo = self._load_rgb(source_path)
         target = self._load_rgb(item["target"])
         rgb = self._load_rgb(item["rgb"])
         depth = self._load_depth(item["depth"])

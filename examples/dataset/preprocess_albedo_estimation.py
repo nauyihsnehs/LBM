@@ -7,6 +7,7 @@ import torch
 import yaml
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from torchvision import transforms
 from torchvision.transforms import ToPILImage
 
@@ -28,8 +29,10 @@ def _list_rgb_images(folder: Path) -> Iterable[Path]:
             yield path
 
 
-def _load_tensor(path: Path) -> torch.Tensor:
+def _load_tensor(path: Path, image_size: int) -> torch.Tensor:
     image = Image.open(path).convert("RGB")
+    if image_size > 0:
+        image = transforms.Resize((image_size, image_size))(image)
     return transforms.ToTensor()(image)
 
 
@@ -50,15 +53,16 @@ def _albedo_path(
 
 
 class _AlbedoDataset(Dataset):
-    def __init__(self, image_paths: Sequence[Path]):
+    def __init__(self, image_paths: Sequence[Path], image_size: int):
         self._image_paths = list(image_paths)
+        self._image_size = image_size
 
     def __len__(self) -> int:
         return len(self._image_paths)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, Path]:
         path = self._image_paths[index]
-        return _load_tensor(path), path
+        return _load_tensor(path, self._image_size), path
 
 
 def _collate_batch(items: List[tuple[torch.Tensor, Path]]) -> tuple[torch.Tensor, List[Path]]:
@@ -78,6 +82,7 @@ def _run_batch(
         source_key: str,
         device: torch.device,
         dtype: torch.dtype,
+        overwrite: bool = False,
 ) -> int:
     source = images.to(device=device, dtype=dtype) * 2 - 1
     batch = {source_key: source}
@@ -109,7 +114,7 @@ def _run_batch(
             albedo_suffix,
             albedo_extension,
         )
-        if albedo_path.exists():
+        if albedo_path.exists() and not overwrite:
             continue
         albedo_image = to_pil(albedo_tensor)
         albedo_image.save(albedo_path)
@@ -158,13 +163,14 @@ def main(
             str] = '/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo/epoch=2-step=30000.ckpt',
         output_root: Optional[str] = None,
         device: Optional[str] = None,
-        batch_size: int = 4,
+        batch_size: int = 16,
         num_workers: int = 4,
         num_inference_steps: int = 4,
         image_size: int = 512,
         torch_dtype: str = "bfloat16",
         albedo_suffix: str = "_elb",
         albedo_extension: str = ".png",
+        overwrite: bool = False,
 ):
     config = _merge_config(
         _load_yaml(train_config),
@@ -181,6 +187,7 @@ def main(
             "output_root": output_root,
             "albedo_suffix": albedo_suffix,
             "albedo_extension": albedo_extension,
+            "overwrite": overwrite,
         },
     )
 
@@ -237,11 +244,11 @@ def main(
                 config["albedo_suffix"],
                 config["albedo_extension"],
             )
-            if albedo_path.exists():
+            if albedo_path.exists() and not config["overwrite"]:
                 continue
             image_paths.append(rgb_path)
 
-    dataset = _AlbedoDataset(image_paths)
+    dataset = _AlbedoDataset(image_paths, int(config["image_size"]))
     loader = DataLoader(
         dataset,
         batch_size=int(config["batch_size"]),
@@ -250,7 +257,7 @@ def main(
         collate_fn=_collate_batch,
     )
     processed = 0
-    for images, batch_paths in loader:
+    for images, batch_paths in tqdm(loader, desc="Estimating albedo", unit="batch"):
         processed += _run_batch(
             model,
             images,
@@ -263,6 +270,7 @@ def main(
             config.get("source_key", "source"),
             device,
             dtype,
+            config["overwrite"],
         )
 
     logger.info("Generated %d estimated albedo images.", processed)

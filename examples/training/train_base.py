@@ -118,7 +118,7 @@ def build_trainer(
 
     checkpoint_kwargs = {
         "dirpath": str(save_dir),
-        "save_last": True,
+        "save_last": False,
         "save_top_k": -1,
         "save_weights_only": False,
     }

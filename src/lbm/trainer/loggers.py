@@ -236,7 +236,13 @@ class WandbSampleLogger(Callback):
 
         concatenated = []
         for idx in range(min_samples):
-            sample_images = [tensor[idx] for tensor in image_tensors]
+            # sample_images = [tensor[idx] for tensor in image_tensors]
+            sample_images = []
+            for tensor in image_tensors:
+                image = tensor[idx]
+                if image.shape[0] == 1:
+                    image = image.repeat(3, 1, 1)
+                sample_images.append(image)
             concatenated.append(torch.cat(sample_images, dim=2))
 
         concat_tensor = torch.stack(concatenated)

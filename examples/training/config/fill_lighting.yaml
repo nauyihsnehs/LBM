@@ -23,13 +23,13 @@ source_key: source
 target_key: target
 
 # DATA ROOTS
-train_data_root: E:\evermotion\train-set
-validation_data_root: E:\evermotion\val-set
+train_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/train
+validation_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/val
 image_size: 512
 num_workers: 4
 train_random_flip: true
 
-batch_size: 1
+batch_size: 2
 learning_rate: 4e-5
 optimizer: AdamW
 num_steps: [ 1, 4 ]
