@@ -3,7 +3,7 @@ import logging
 import time
 from pathlib import Path
 from typing import List, Optional
-
+from tqdm import tqdm
 import torch
 import yaml
 from PIL import Image
@@ -94,9 +94,7 @@ def run_inference(config: dict) -> None:
     )
 
     model = build_relight_model(
-        backbone_signature=config.get(
-            "backbone_signature", "stable-diffusion-v1-5/stable-diffusion-v1-5"
-        ),
+        backbone_signature=config.get("backbone_signature", "stable-diffusion-v1-5/stable-diffusion-v1-5"),
         vae_num_channels=int(config.get("vae_num_channels", 4)),
         unet_input_channels=int(config.get("unet_input_channels", 4)),
         source_key=config.get("source_key", "source"),
@@ -133,7 +131,7 @@ def run_inference(config: dict) -> None:
     total_time = 0.0
     max_memory_mb = 0.0
 
-    for source_path in inputs:
+    for source_path in tqdm(inputs):
         source_tensor = _load_tensor(source_path, image_size)
         batch = {
             config.get("source_key", "source"): source_tensor.unsqueeze(0).to(device)
@@ -169,7 +167,7 @@ def run_inference(config: dict) -> None:
         total_time += elapsed
 
         if device.startswith("cuda"):
-            peak_memory = torch.cuda.max_memory_allocated() / (1024**2)
+            peak_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)
             max_memory_mb = max(max_memory_mb, peak_memory)
 
         output_image = (output[0].float().cpu() + 1) / 2
@@ -188,22 +186,14 @@ def run_inference(config: dict) -> None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_config", type=str, default=None)
-    parser.add_argument("--inference_config", type=str, default=None)
-    parser.add_argument("--checkpoint_path", type=str, default=None)
-    parser.add_argument("--source_image", type=str, default=None)
-    parser.add_argument("--output_path", type=str, default=None)
-    parser.add_argument("--num_inference_steps", type=int, default=None)
-    parser.add_argument("--image_size", type=int, default=None)
-    parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--torch_dtype", type=str, default=None)
+    parser.add_argument("--inference_config", type=str, default='config/albedo_infer.yaml')
 
     args = parser.parse_args()
 
     inference_config = _load_yaml(args.inference_config)
-    train_config_path = args.train_config or inference_config.get("train_config")
+    train_config_path = inference_config.get("train_config")
     train_config = _load_yaml(train_config_path)
-    merged = _merge_config(train_config, inference_config, vars(args))
+    merged = _merge_config(train_config, inference_config)
 
     if not merged.get("source_image"):
         raise ValueError("source_image must be provided via args or config.")

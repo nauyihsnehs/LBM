@@ -1,0 +1,8 @@
+train_config: /mnt/data1/ssy/render_people/LBM/examples/training/config/albedo.yaml
+checkpoint_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo/epoch=2-step=30000.ckpt
+source_image: /mnt/data1/ssy/render_people/fill-light-dataset/infer/huawei
+output_path: ./outputs/albedo
+num_inference_steps: 4
+image_size: 512
+device: cuda
+torch_dtype: bfloat16

@@ -1,8 +1,0 @@
-train_config: examples/training/config/albedo.yaml
-checkpoint_path: ./checkpoints/last.ckpt
-source_image: /path/to/source
-output_path: ./outputs/albedo
-num_inference_steps: 4
-image_size: 512
-device: cuda
-torch_dtype: bfloat16

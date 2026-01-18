@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -17,12 +17,12 @@ logging.basicConfig(level=logging.INFO)
 
 
 def create_grid_texts(
-    texts: List[str],
-    n_cols: int = 4,
-    image_size: Tuple[int] = (512, 512),
-    font_size: int = 40,
-    margin: int = 5,
-    offset: int = 5,
+        texts: List[str],
+        n_cols: int = 4,
+        image_size: Tuple[int] = (512, 512),
+        font_size: int = 40,
+        margin: int = 5,
+        offset: int = 5,
 ) -> Image.Image:
     """
     Create a grid of white images containing the given texts.
@@ -48,7 +48,7 @@ def create_grid_texts(
         margin_ = margin
         offset_ = offset
         for line in wrap_text(
-            text=text, draw=draw, max_width=image_size[0] - 2 * margin_, font=font
+                text=text, draw=draw, max_width=image_size[0] - 2 * margin_, font=font
         ):
             draw.text((margin_, offset_), line, font=font, fill="black")
             offset_ += font_size
@@ -66,7 +66,7 @@ def create_grid_texts(
 
 
 def wrap_text(
-    text: str, draw: ImageDraw.Draw, max_width: int, font: ImageFont
+        text: str, draw: ImageDraw.Draw, max_width: int, font: ImageFont
 ) -> List[str]:
     """
     Wrap text to fit within a specified width when drawn.
@@ -101,28 +101,29 @@ class WandbSampleLogger(Callback):
         log_batch_freq (int): The frequency of logging samples to wandb. Default is 100.
     """
 
-    def __init__(self, log_batch_freq: int = 100):
+    def __init__(self, log_batch_freq: int = 100, concat_keys: Optional[List[str]] = None):
         super().__init__()
         self.log_batch_freq = log_batch_freq
+        self.concat_keys = concat_keys
 
     def on_train_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Any,
-        batch_idx: int,
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Any,
+            batch_idx: int,
     ) -> None:
         self.log_samples(trainer, pl_module, outputs, batch, batch_idx, split="train")
         self._process_logs(trainer, outputs, split="train")
 
     def on_validation_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Any,
-        batch_idx: int,
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Any,
+            batch_idx: int,
     ) -> None:
         self.log_samples(trainer, pl_module, outputs, batch, batch_idx, split="val")
         self._process_logs(trainer, outputs, split="val")
@@ -130,13 +131,13 @@ class WandbSampleLogger(Callback):
     @rank_zero_only
     @torch.no_grad()
     def log_samples(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Dict[str, Any],
-        batch_idx: int,
-        split: str = "train",
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Dict[str, Any],
+            batch_idx: int,
+            split: str = "train",
     ) -> None:
         if hasattr(pl_module, "log_samples"):
             if batch_idx % self.log_batch_freq == 0:
@@ -156,8 +157,9 @@ class WandbSampleLogger(Callback):
 
     @rank_zero_only
     def _process_logs(
-        self, trainer, logs: Dict[str, Any], rescale=True, split="train"
+            self, trainer, logs: Dict[str, Any], rescale=True, split="train"
     ) -> Dict[str, Any]:
+        self._log_concat_images(trainer, logs, rescale=rescale, split=split)
         for key, value in logs.items():
             if isinstance(value, torch.Tensor):
                 value = value.detach().cpu()
@@ -207,6 +209,45 @@ class WandbSampleLogger(Callback):
 
         return logs
 
+    def _log_concat_images(
+            self,
+            trainer: Trainer,
+            logs: Dict[str, Any],
+            rescale: bool,
+            split: str,
+    ) -> None:
+        if not self.concat_keys:
+            return
+
+        image_tensors = []
+        for key in self.concat_keys:
+            value = logs.get(key)
+            if isinstance(value, torch.Tensor) and value.dim() == 4:
+                image_tensors.append(value.detach().cpu())
+
+        if not image_tensors:
+            return
+
+        min_samples = min(tensor.shape[0] for tensor in image_tensors)
+        image_tensors = [tensor[:min_samples] for tensor in image_tensors]
+
+        if rescale:
+            image_tensors = [(tensor + 1.0) / 2.0 for tensor in image_tensors]
+
+        concatenated = []
+        for idx in range(min_samples):
+            sample_images = [tensor[idx] for tensor in image_tensors]
+            concatenated.append(torch.cat(sample_images, dim=2))
+
+        concat_tensor = torch.stack(concatenated)
+        grid = make_grid(concat_tensor, nrow=4)
+        grid = grid.permute(1, 2, 0)
+        grid = grid.mul(255).clamp(0, 255).to(torch.uint8)
+        trainer.logger.experiment.log(
+            {f"comparison/{split}": [wandb.Image(Image.fromarray(grid.numpy()))]},
+            step=trainer.global_step,
+        )
+
 
 class TensorBoardSampleLogger(Callback):
     """
@@ -221,23 +262,23 @@ class TensorBoardSampleLogger(Callback):
         self.log_batch_freq = log_batch_freq
 
     def on_train_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Any,
-        batch_idx: int,
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Any,
+            batch_idx: int,
     ) -> None:
         self.log_samples(trainer, pl_module, outputs, batch, batch_idx, split="train")
         self._process_logs(trainer, outputs, split="train")
 
     def on_validation_batch_end(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Any,
-        batch_idx: int,
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Any,
+            batch_idx: int,
     ) -> None:
         self.log_samples(trainer, pl_module, outputs, batch, batch_idx, split="val")
         self._process_logs(trainer, outputs, split="val")
@@ -245,13 +286,13 @@ class TensorBoardSampleLogger(Callback):
     @rank_zero_only
     @torch.no_grad()
     def log_samples(
-        self,
-        trainer: Trainer,
-        pl_module: TrainingPipeline,
-        outputs: Dict[str, Any],
-        batch: Dict[str, Any],
-        batch_idx: int,
-        split: str = "train",
+            self,
+            trainer: Trainer,
+            pl_module: TrainingPipeline,
+            outputs: Dict[str, Any],
+            batch: Dict[str, Any],
+            batch_idx: int,
+            split: str = "train",
     ) -> None:
         if hasattr(pl_module, "log_samples"):
             if batch_idx % self.log_batch_freq == 0:
@@ -271,7 +312,7 @@ class TensorBoardSampleLogger(Callback):
 
     @rank_zero_only
     def _process_logs(
-        self, trainer, logs: Dict[str, Any], rescale=True, split="train"
+            self, trainer, logs: Dict[str, Any], rescale=True, split="train"
     ) -> Dict[str, Any]:
         for key, value in logs.items():
             if isinstance(value, torch.Tensor):

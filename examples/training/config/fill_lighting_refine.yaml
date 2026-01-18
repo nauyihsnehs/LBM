@@ -29,5 +29,7 @@ optimizer: AdamW
 num_steps: [1, 4]
 log_interval: 500
 resume_from_checkpoint: true
-max_epochs: 50
+max_epochs: 10
+save_interval: 10000
+resume_ckpt_path: null
 save_ckpt_path: ./checkpoints

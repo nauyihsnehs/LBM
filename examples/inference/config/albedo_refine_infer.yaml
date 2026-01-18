@@ -1,10 +1,10 @@
-train_config: examples/training/config/albedo_refine.yaml
-checkpoint_path: ./checkpoints/last.ckpt
-source_image: /path/to/source
+train_config: /mnt/data1/ssy/render_people/LBM/examples/training/config/albedo_refine.yaml
+checkpoint_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo_refine/epoch=2-step=30000.ckpt
+source_image: /mnt/data1/ssy/render_people/fill-light-dataset/infer/huawei
 output_path: ./outputs/albedo_refine
 num_inference_steps: 4
 image_size: 512
 device: cuda
 torch_dtype: bfloat16
-robedo_device: null
-robedo_base_size: 384
+robedo_device: cuda
+robedo_base_size: 512

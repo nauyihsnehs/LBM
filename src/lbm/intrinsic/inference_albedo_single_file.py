@@ -49,11 +49,12 @@ def _make_resnet_backbone(resnet):
 
 
 def _make_pretrained_resnext101_wsl(use_pretrained, in_chan=3, group_width=8):
-    resnet = torch.hub.load(
-        "intrinsic_models",
-        # "facebookresearch/WSL-Images",
-        f"resnext101_32x{group_width}d_wsl", source='local'
-    )
+    try:
+        resnet = torch.hub.load("intrinsic_models",
+                                f"resnext101_32x{group_width}d_wsl", source='local')
+    except Exception as e:
+        resnet = torch.hub.load("facebookresearch/WSL-Images",
+                                f"resnext101_32x{group_width}d_wsl")
     if in_chan != 3:
         resnet.conv1 = torch.nn.Conv2d(in_chan, 64, 7, 2, 3, bias=False)
     return _make_resnet_backbone(resnet)
@@ -73,7 +74,7 @@ def _make_pretrained_efficientnet_lite3(use_pretrained, exportable=False, in_cha
         "rwightman/gen-efficientnet-pytorch",
         "tf_efficientnet_lite3",
         pretrained=use_pretrained,
-        exportable=exportable#, source='local',
+        exportable=exportable  # , source='local',
     )
     if in_chan != 3:
         efficientnet.conv_stem = Conv2dSame(in_chan, 32, kernel_size=(3, 3), stride=(2, 2), bias=False)

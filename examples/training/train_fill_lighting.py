@@ -1,10 +1,9 @@
 import os
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-import datetime
-import platform
 import re
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import fire
@@ -12,15 +11,21 @@ import h5py
 import torch
 import yaml
 from PIL import Image
-from pytorch_lightning import Trainer, loggers
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from pytorch_lightning.strategies import DDPStrategy
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from lbm.inference.relight import build_filllight_model
-from lbm.trainer import TrainingConfig, TrainingPipeline
-from lbm.trainer.loggers import WandbSampleLogger
+from lbm.trainer import TrainingConfig
+
+from train_base import (
+    build_trainer,
+    build_concat_keys,
+    create_run_name,
+    fit_trainer,
+    resolve_resume_checkpoint,
+    resolve_task_dir,
+    setup_pipeline,
+)
 
 VALID_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 LIGHTING_PARAM_SUFFIXES = ".h5"
@@ -42,8 +47,9 @@ class FillLightingFolderDataset(Dataset):
         if not self.items:
             raise ValueError("No matching samples found across albedo/fill/rgb/depth/lighting params folders.")
 
-        self.rgb_transform = transforms.Compose([transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.NEAREST_EXACT),
-                                                 transforms.ToTensor()])
+        self.rgb_transform = transforms.Compose(
+            [transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.NEAREST_EXACT),
+             transforms.ToTensor()])
 
     def _index_files(self, directory, suffixes):
         files = [path for path in directory.iterdir() if path.is_file() and path.suffix.lower() in suffixes]
@@ -185,8 +191,10 @@ class FillLightingFolderDataset(Dataset):
         return sample
 
 
-def get_dataloaders(train_data_root, validation_data_root, batch_size, image_size=512, num_workers=4, train_random_flip=True):
-    train_dataset = FillLightingFolderDataset(root_dir=train_data_root, image_size=image_size, random_flip=train_random_flip)
+def get_dataloaders(train_data_root, validation_data_root, batch_size, image_size=512, num_workers=4,
+                    train_random_flip=True):
+    train_dataset = FillLightingFolderDataset(root_dir=train_data_root, image_size=image_size,
+                                              random_flip=train_random_flip)
     validation_dataset = FillLightingFolderDataset(root_dir=validation_data_root, image_size=image_size)
 
     train_loader = DataLoader(
@@ -247,9 +255,12 @@ def main(
         resume_from_checkpoint=True,
         max_epochs=100,
         bridge_noise_sigma=0.005,
+        save_interval: int = 1000,
+        resume_ckpt_path: Optional[str] = None,
         devices=None,
         num_nodes=1,
 ):
+    task_dir = resolve_task_dir(save_ckpt_path, "fill_lighting")
     if conditioning_images_keys is None:
         conditioning_images_keys = ["shading"]
     if conditioning_masks_keys is None:
@@ -299,63 +310,23 @@ def main(
         optimizer_kwargs=optimizer_kwargs,
         log_samples_model_kwargs={"input_shape": None, "num_steps": num_steps},
     )
-    if (os.path.exists(save_ckpt_path) and resume_from_checkpoint
-            and "last.ckpt" in os.listdir(save_ckpt_path)):
-        start_ckpt = f"{save_ckpt_path}/last.ckpt"
-        print(f"Resuming from checkpoint: {start_ckpt}")
-        last_model = torch.load(start_ckpt, map_location="cpu", weights_only=False)
-        model.load_state_dict(last_model["state_dict"], strict=False)
-
-    pipeline = TrainingPipeline(model=model, pipeline_config=training_config)
-
-    pipeline.save_hyperparameters({f"embedder_{i}": embedder.config.to_dict()
-                                   for i, embedder in enumerate(model.conditioner.conditioners)})
-
-    pipeline.save_hyperparameters(
-        {
-            "denoiser": model.denoiser.config,
-            "vae": model.vae.config.to_dict(),
-            "config_yaml": config_yaml,
-            "training": training_config.to_dict(),
-            "training_noise_scheduler": model.training_noise_scheduler.config,
-            "sampling_noise_scheduler": model.sampling_noise_scheduler.config,
-        }
-    )
-
-    run_name = (datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Fill-Lighting")
-
-    if platform.system() == "Windows":
-        strategy = DDPStrategy(find_unused_parameters=True, process_group_backend="gloo")
-    else:
-        strategy = "ddp_find_unused_parameters_true"
-    trainer = Trainer(
-        accelerator="gpu",
-        devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
-        num_nodes=num_nodes,
-        strategy=strategy,
-        default_root_dir="logs",
-        logger=loggers.WandbLogger(
-            project=wandb_project, offline=True, name=run_name, save_dir=save_ckpt_path
-        ),
-        callbacks=[
-            WandbSampleLogger(log_batch_freq=log_interval),
-            LearningRateMonitor(logging_interval="step"),
-            ModelCheckpoint(
-                dirpath=save_ckpt_path,
-                every_n_epochs=100,
-                save_last=True,
-                save_top_k=-1,
-                save_weights_only=False,
-            ),
-        ],
-        num_sanity_val_steps=0,
-        precision="bf16-mixed",
-        limit_val_batches=2,
-        check_val_every_n_epoch=1,
+    pipeline = setup_pipeline(model, training_config, config_yaml)
+    run_name = create_run_name("Fill-Lighting")
+    trainer = build_trainer(
+        wandb_project=wandb_project,
+        run_name=run_name,
+        save_dir=task_dir,
+        log_interval=log_interval,
+        save_interval=save_interval,
         max_epochs=max_epochs,
+        concat_keys=build_concat_keys(training_config),
+        devices=devices,
+        num_nodes=num_nodes,
     )
-
-    trainer.fit(pipeline, train_dataloaders=train_loader, val_dataloaders=validation_loader)
+    ckpt_path = resolve_resume_checkpoint(
+        task_dir, resume_from_checkpoint, resume_ckpt_path
+    )
+    fit_trainer(trainer, pipeline, train_loader, validation_loader, ckpt_path)
 
 
 def main_from_config(path_config):

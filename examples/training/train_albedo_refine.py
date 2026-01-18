@@ -1,6 +1,4 @@
-import datetime
 import logging
-import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -8,16 +6,22 @@ import fire
 import torch
 import yaml
 from PIL import Image
-from pytorch_lightning import Trainer, loggers
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, TQDMProgressBar
-from pytorch_lightning.strategies import DDPStrategy
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
 from lbm.inference.relight import build_relight_model
-from lbm.trainer import TrainingConfig, TrainingPipeline
-from lbm.trainer.loggers import WandbSampleLogger
+from lbm.trainer import TrainingConfig
+
+from train_base import (
+    build_trainer,
+    build_concat_keys,
+    create_run_name,
+    fit_trainer,
+    resolve_resume_checkpoint,
+    resolve_task_dir,
+    setup_pipeline,
+)
 
 
 class AlbedoRefineFolderDataset(Dataset):
@@ -223,12 +227,13 @@ def main(
         resume_from_checkpoint: bool = True,
         max_epochs: int = 100,
         bridge_noise_sigma: float = 0.005,
-        # save_interval: int = 1000,
+        save_interval: int = 1000,
+        resume_ckpt_path: Optional[str] = None,
         devices: Optional[int] = None,
         num_nodes: int = 1,
         # path_config: str = None,
 ):
-    os.mkdirs(save_ckpt_path, exist_ok=True)
+    task_dir = resolve_task_dir(save_ckpt_path, "albedo_refine")
     if conditioning_images_keys is None:
         conditioning_images_keys = ["robedo"]
 
@@ -282,81 +287,23 @@ def main(
             "num_steps": num_steps,
         },
     )
-    if (
-            os.path.exists(save_ckpt_path)
-            and resume_from_checkpoint
-            and "last.ckpt" in os.listdir(save_ckpt_path)
-    ):
-        start_ckpt = f"{save_ckpt_path}/last.ckpt"
-        print(f"Resuming from checkpoint: {start_ckpt}")
-        last_model = torch.load(start_ckpt, map_location="cpu", weights_only=False)
-        model.load_state_dict(last_model["state_dict"], strict=False)
-    else:
-        start_ckpt = None
-
-    pipeline = TrainingPipeline(model=model, pipeline_config=training_config)
-
-    pipeline.save_hyperparameters(
-        {
-            f"embedder_{i}": embedder.config.to_dict()
-            for i, embedder in enumerate(model.conditioner.conditioners)
-        }
-    )
-
-    pipeline.save_hyperparameters(
-        {
-            "denoiser": model.denoiser.config,
-            "vae": model.vae.config.to_dict(),
-            "config_yaml": config_yaml,
-            "training": training_config.to_dict(),
-            "training_noise_scheduler": model.training_noise_scheduler.config,
-            "sampling_noise_scheduler": model.sampling_noise_scheduler.config,
-        }
-    )
-
-    training_signature = (
-            datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "-LBM-Albedo-Refine"
-    )
-    run_name = training_signature
-
-    import platform
-
-    if platform.system() == "Windows":
-        strategy = DDPStrategy(find_unused_parameters=True, process_group_backend="gloo")
-    else:
-        strategy = "ddp_find_unused_parameters_true"
-    trainer = Trainer(
-        accelerator="gpu",
-        devices=devices if devices is not None else max(torch.cuda.device_count(), 1),
-        num_nodes=num_nodes,
-        strategy=strategy,
-        default_root_dir="logs",
-        logger=loggers.WandbLogger(
-            project=wandb_project, offline=True, name=run_name, save_dir=save_ckpt_path
-        ),
-        callbacks=[
-            WandbSampleLogger(log_batch_freq=log_interval),
-            LearningRateMonitor(logging_interval="step"),
-            TQDMProgressBar(refresh_rate=1),
-            ModelCheckpoint(
-                dirpath=save_ckpt_path,
-                every_n_epochs=1,
-                save_last=False,
-                save_top_k=-1,
-                save_weights_only=False,
-            ),
-        ],
-        num_sanity_val_steps=0,
-        precision="bf16-mixed",
-        limit_val_batches=2,
-        check_val_every_n_epoch=1,
+    pipeline = setup_pipeline(model, training_config, config_yaml)
+    run_name = create_run_name("Albedo-Refine")
+    trainer = build_trainer(
+        wandb_project=wandb_project,
+        run_name=run_name,
+        save_dir=task_dir,
+        log_interval=log_interval,
+        save_interval=save_interval,
         max_epochs=max_epochs,
-        enable_progress_bar=True,
+        concat_keys=build_concat_keys(training_config),
+        devices=devices,
+        num_nodes=num_nodes,
     )
-
-    trainer.fit(
-        pipeline, train_dataloaders=train_loader, val_dataloaders=validation_loader
+    ckpt_path = resolve_resume_checkpoint(
+        task_dir, resume_from_checkpoint, resume_ckpt_path
     )
+    fit_trainer(trainer, pipeline, train_loader, validation_loader, ckpt_path)
 
 
 def main_from_config(path_config: str = None):
