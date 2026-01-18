@@ -1,5 +1,6 @@
 import argparse
 import logging
+import re
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -85,6 +86,33 @@ def _load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> None:
     model.load_state_dict(filtered_state, strict=False)
 
 
+def _parse_checkpoint_ids(path: Path) -> Optional[tuple[int, int]]:
+    match = re.match(r"^epoch=(\d+)-step=(\d+)\.ckpt$", path.name)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _resolve_checkpoints(checkpoint_path: Optional[str]) -> List[Optional[Path]]:
+    if not checkpoint_path:
+        return [None]
+    path = Path(checkpoint_path)
+    if path.is_dir():
+        candidates = [
+            file for file in path.iterdir() if file.is_file() and file.suffix == ".ckpt"
+        ]
+        checkpoints = [
+            file for file in candidates if _parse_checkpoint_ids(file) is not None
+        ]
+        if not checkpoints:
+            raise ValueError(f"No epoch/step checkpoints found in {path}")
+        return sorted(
+            checkpoints,
+            key=lambda file: _parse_checkpoint_ids(file),
+        )
+    return [path]
+
+
 def run_inference(config: dict) -> None:
     device = config.get("device", "cuda" if torch.cuda.is_available() else "cpu")
     torch_dtype = (
@@ -116,11 +144,6 @@ def run_inference(config: dict) -> None:
     model.to(device).to(torch_dtype)
     model.eval()
 
-    checkpoint_path = config.get("checkpoint_path")
-    if checkpoint_path:
-        logger.info("Loading checkpoint from %s", checkpoint_path)
-        _load_checkpoint(model, checkpoint_path)
-
     inputs = _prepare_inputs(config.get("source_image"))
     output_dir = Path(config.get("output_path", "./outputs"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -128,23 +151,43 @@ def run_inference(config: dict) -> None:
     image_size = int(config.get("image_size", 512))
     num_steps = int(config.get("num_inference_steps", 1))
 
-    total_time = 0.0
-    max_memory_mb = 0.0
+    checkpoints = _resolve_checkpoints(config.get("checkpoint_path"))
+    for checkpoint_path in checkpoints:
+        run_dir = output_dir
+        if checkpoint_path is not None:
+            checkpoint_ids = _parse_checkpoint_ids(checkpoint_path)
+            if checkpoint_ids:
+                epoch_id, step_id = checkpoint_ids
+                run_dir = output_dir / f"{epoch_id:02d}_{step_id:06d}"
+            logger.info("Loading checkpoint from %s", checkpoint_path)
+            _load_checkpoint(model, str(checkpoint_path))
+        run_dir.mkdir(parents=True, exist_ok=True)
 
-    for source_path in tqdm(inputs):
-        source_tensor = _load_tensor(source_path, image_size)
-        batch = {
-            config.get("source_key", "source"): source_tensor.unsqueeze(0).to(device)
-        }
+        total_time = 0.0
+        max_memory_mb = 0.0
 
-        if device.startswith("cuda"):
-            torch.cuda.reset_peak_memory_stats()
-            torch.cuda.synchronize()
-        start_time = time.perf_counter()
+        for source_path in tqdm(inputs, desc=f"Inference {run_dir.name}"):
+            source_tensor = _load_tensor(source_path, image_size)
+            batch = {
+                config.get("source_key", "source"): source_tensor.unsqueeze(0).to(device)
+            }
 
-        with torch.no_grad():
             if device.startswith("cuda"):
-                with torch.autocast(device_type="cuda", dtype=torch_dtype):
+                torch.cuda.reset_peak_memory_stats()
+                torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            with torch.no_grad():
+                if device.startswith("cuda"):
+                    with torch.autocast(device_type="cuda", dtype=torch_dtype):
+                        z_source = model.vae.encode(batch[model.source_key])
+                        output = model.sample(
+                            z=z_source,
+                            num_steps=num_steps,
+                            conditioner_inputs=batch,
+                            max_samples=1,
+                        )
+                else:
                     z_source = model.vae.encode(batch[model.source_key])
                     output = model.sample(
                         z=z_source,
@@ -152,36 +195,27 @@ def run_inference(config: dict) -> None:
                         conditioner_inputs=batch,
                         max_samples=1,
                     )
-            else:
-                z_source = model.vae.encode(batch[model.source_key])
-                output = model.sample(
-                    z=z_source,
-                    num_steps=num_steps,
-                    conditioner_inputs=batch,
-                    max_samples=1,
-                )
+            if device.startswith("cuda"):
+                torch.cuda.synchronize()
+            elapsed = time.perf_counter() - start_time
+            total_time += elapsed
 
+            if device.startswith("cuda"):
+                peak_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)
+                max_memory_mb = max(max_memory_mb, peak_memory)
+
+            output_image = (output[0].float().cpu() + 1) / 2
+            output_pil = ToPILImage()(output_image)
+            output_name = f"{source_path.stem}_albedo.png"
+            output_pil.save(run_dir / output_name)
+
+        avg_time = total_time / len(inputs)
+        logger.info("Processed %d samples for %s", len(inputs), run_dir)
+        logger.info("Average inference time: %.4fs", avg_time)
         if device.startswith("cuda"):
-            torch.cuda.synchronize()
-        elapsed = time.perf_counter() - start_time
-        total_time += elapsed
-
-        if device.startswith("cuda"):
-            peak_memory = torch.cuda.max_memory_allocated() / (1024 ** 2)
-            max_memory_mb = max(max_memory_mb, peak_memory)
-
-        output_image = (output[0].float().cpu() + 1) / 2
-        output_pil = ToPILImage()(output_image)
-        output_name = f"{source_path.stem}_albedo.png"
-        output_pil.save(output_dir / output_name)
-
-    avg_time = total_time / len(inputs)
-    logger.info("Processed %d samples", len(inputs))
-    logger.info("Average inference time: %.4fs", avg_time)
-    if device.startswith("cuda"):
-        logger.info("Peak GPU memory: %.2f MB", max_memory_mb)
-    else:
-        logger.info("GPU memory stats unavailable on CPU device.")
+            logger.info("Peak GPU memory: %.2f MB", max_memory_mb)
+        else:
+            logger.info("GPU memory stats unavailable on CPU device.")
 
 
 def main():

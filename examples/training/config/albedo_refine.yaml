@@ -11,7 +11,7 @@ pixel_loss_weight: 10.0
 latent_loss_type: l2 # l1 l2
 latent_loss_weight: 1.0
 bridge_noise_sigma: 0.005
-conditioning_images_keys: [ robedo ]
+conditioning_images_keys: [ rgb ]
 conditioning_masks_keys: [ ]
 source_key: source
 target_key: target

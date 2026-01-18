@@ -157,10 +157,10 @@ def run_inference(config: dict) -> None:
         source_tensor = _load_tensor(source_path, image_size)
         robedo_tensor = _predict_robedo(robedo_model, source_tensor)
         batch = {
-            config.get("source_key", "source"): (source_tensor * 2 - 1)
+            config.get("source_key", "source"): (robedo_tensor * 2 - 1)
             .unsqueeze(0)
             .to(device),
-            "robedo": (robedo_tensor * 2 - 1).unsqueeze(0).to(device),
+            "rgb": (source_tensor * 2 - 1).unsqueeze(0).to(device),
         }
 
         if device.startswith("cuda"):

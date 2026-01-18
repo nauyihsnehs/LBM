@@ -119,13 +119,13 @@ class AlbedoRefineFolderDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         item = self.items[index]
-        source = self._load_image(item["source"])
+        rgb = self._load_image(item["source"])
         target = self._load_image(item["target"])
         robedo = self._load_image(item["robedo"])
         sample = {
-            "source": source,
+            "source": robedo,
             "target": target,
-            "robedo": robedo,
+            "rgb": rgb,
         }
         if self.random_scale_min != 1.0 or self.random_scale_max != 1.0:
             scale = torch.empty(1).uniform_(self.random_scale_min, self.random_scale_max)
@@ -235,7 +235,7 @@ def main(
 ):
     task_dir = resolve_task_dir(save_ckpt_path, "albedo_refine")
     if conditioning_images_keys is None:
-        conditioning_images_keys = ["robedo"]
+        conditioning_images_keys = ["rgb"]
 
     model = build_relight_model(
         backbone_signature=backbone_signature,
@@ -278,7 +278,7 @@ def main(
         learning_rate=learning_rate,
         lr_scheduler_name=learning_rate_scheduler,
         lr_scheduler_kwargs=learning_rate_scheduler_kwargs,
-        log_keys=["source", "target", "robedo"],
+        log_keys=["source", "target", "rgb"],
         trainable_params=train_parameters,
         optimizer_name=optimizer,
         optimizer_kwargs=optimizer_kwargs,
