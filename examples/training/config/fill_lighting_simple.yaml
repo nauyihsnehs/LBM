@@ -1,7 +1,7 @@
 # wandb
-wandb_project: lbm-fill-lighting
+wandb_project: lbm-fill-lighting-simple
 backbone_signature: stable-diffusion-v1-5/stable-diffusion-v1-5
-unet_input_channels: 10
+unet_input_channels: 6
 vae_num_channels: 4
 timestep_sampling: custom_timesteps
 selected_timesteps: [ 250, 500, 750, 1000 ]
@@ -11,7 +11,7 @@ pixel_loss_weight: 10.0
 latent_loss_type: l2
 latent_loss_weight: 1.0
 bridge_noise_sigma: 0.005
-conditioning_images_keys: [ shading ]
+conditioning_images_keys: [ ]
 conditioning_masks_keys: [ depth, lighting_scale ]
 lighting_embedder_config:
   mapping_size: 256
