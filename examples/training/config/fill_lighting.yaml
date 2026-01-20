@@ -18,7 +18,8 @@ lighting_embedder_config:
   scale: 10.0
   hidden_dim: 512
   out_dim: 768
-  seq_len: 1
+  seq_len: 4
+  param_groups: [[0, 1], [2], [3, 4, 5], [6]]
 source_key: source
 target_key: target
 

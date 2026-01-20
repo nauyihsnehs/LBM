@@ -26,7 +26,9 @@ class LightingParamsEmbedderConfig(BaseConditionerConfig):
     scale: float = 10.0
     hidden_dim: int = 512
     out_dim: int = 768
-    seq_len: int = 1
+    seq_len: int = 4
+    # param_groups: list[list[int]] | None = [[0, 1], [2], [3, 4, 5], [6]]
+    param_groups = [[0, 1], [2], [3, 4, 5], [6]]
     input_key: str = "lighting_params"
 
 
@@ -35,14 +37,40 @@ class LightingParamsEmbedder(BaseConditioner):
 
     def __init__(self, config: LightingParamsEmbedderConfig):
         BaseConditioner.__init__(self, config)
-        self.fourier = GaussianFourierFeatures(in_features=7, mapping_size=config.mapping_size, scale=config.scale)
-        self.mlp = nn.Sequential(
-            nn.Linear(config.mapping_size * 2, config.hidden_dim),
-            nn.SiLU(),
-            nn.Linear(config.hidden_dim, config.hidden_dim),
-            nn.SiLU(),
-            nn.Linear(config.hidden_dim, config.out_dim * config.seq_len),
+        self.param_groups = config.param_groups or [[idx] for idx in range(7)]
+        if config.seq_len != len(self.param_groups):
+            raise ValueError(
+                "lighting_embedder_config.seq_len must match the number of param_groups "
+                f"({len(self.param_groups)})."
+            )
+        self.group_fourier = nn.ModuleList(
+            [
+                GaussianFourierFeatures(
+                    in_features=len(group),
+                    mapping_size=config.mapping_size,
+                    scale=config.scale,
+                )
+                for group in self.param_groups
+            ]
         )
+        self.group_mlps = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(config.mapping_size * 2, config.hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(config.hidden_dim, config.hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(config.hidden_dim, config.out_dim),
+                )
+                for _ in self.param_groups
+            ]
+        )
+        for mlp in self.group_mlps:
+            for layer in mlp:
+                if isinstance(layer, nn.Linear):
+                    nn.init.zeros_(layer.weight)
+                    if layer.bias is not None:
+                        nn.init.zeros_(layer.bias)
         self.out_dim = config.out_dim
         self.seq_len = config.seq_len
 
@@ -59,7 +87,10 @@ class LightingParamsEmbedder(BaseConditioner):
                                 dtype=lighting_params.dtype)
             return {self.dim2outputkey[zeros.dim()]: zeros}
 
-        features = self.fourier(lighting_params)
-        embedding = self.mlp(features)
-        embedding = embedding.view(lighting_params.shape[0], self.seq_len, self.out_dim)
+        embeddings = []
+        for group, fourier, mlp in zip(self.param_groups, self.group_fourier, self.group_mlps):
+            group_params = lighting_params[:, group]
+            features = fourier(group_params)
+            embeddings.append(mlp(features))
+        embedding = torch.stack(embeddings, dim=1)
         return {self.dim2outputkey[embedding.dim()]: embedding}
