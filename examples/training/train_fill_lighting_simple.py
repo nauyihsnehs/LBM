@@ -168,8 +168,14 @@ class FillLightingSimpleFolderDataset(Dataset):
         params = torch.tensor(data, dtype=torch.float32)
 
         params = params.flatten()
-        if params.numel() != 7:
-            raise ValueError(f"Expected 7 lighting params, got {params.numel()} from {path}")
+        position = params[:2]
+        intensity = (params[2:3] / 200) * 2 - 1
+        color = params[3:6] * 2 - 1
+        area = (params[-1:] * 5) * 2 - 1
+        shading_scale = torch.ones_like(area)
+        params = torch.cat([position, intensity, color, area, shading_scale], dim=0)
+        # if params.numel() != 7:
+        #     raise ValueError(f"Expected 7 lighting params, got {params.numel()} from {path}")
         return params
 
     def __len__(self):
@@ -180,25 +186,23 @@ class FillLightingSimpleFolderDataset(Dataset):
         source = self._load_rgb(item["source"])
         target = self._load_rgb(item["target"])
         depth = self._load_depth(item["depth"])
-        lighting_scale = torch.ones_like(depth)
         lighting_params = self._load_lighting_params(item["lighting_params"])
 
         sample = {
             "source": source * 2 - 1,
             "target": target * 2 - 1,
             "depth": depth,
-            "lighting_scale": lighting_scale,
             "lighting_params": lighting_params,
         }
         return sample
 
 
 def get_dataloaders(
-    train_data_root,
-    validation_data_root,
-    batch_size,
-    image_size=512,
-    num_workers=4,
+        train_data_root,
+        validation_data_root,
+        batch_size,
+        image_size=512,
+        num_workers=4,
 ):
     train_dataset = FillLightingSimpleFolderDataset(
         root_dir=train_data_root,
@@ -229,52 +233,54 @@ def get_dataloaders(
 
 
 def main(
-    train_data_root="path/to/train",
-    validation_data_root="path/to/validation",
-    backbone_signature="runwayml/stable-diffusion-v1-5",
-    vae_num_channels=4,
-    unet_input_channels=6,
-    source_key="source",
-    target_key="target",
-    mask_key=None,
-    wandb_project="lbm-fill-lighting-simple",
-    batch_size=8,
-    num_steps=[1, 2, 4],
-    learning_rate=5e-5,
-    learning_rate_scheduler=None,
-    learning_rate_scheduler_kwargs={},
-    optimizer="AdamW",
-    optimizer_kwargs={},
-    timestep_sampling="uniform",
-    logit_mean=0.0,
-    logit_std=1.0,
-    pixel_loss_type="lpips",
-    latent_loss_type="l2",
-    latent_loss_weight=1.0,
-    pixel_loss_weight=0.0,
-    selected_timesteps=None,
-    prob=None,
-    conditioning_images_keys=None,
-    conditioning_masks_keys=None,
-    lighting_embedder_config=None,
-    image_size=512,
-    num_workers=4,
-    config_yaml=None,
-    save_ckpt_path="./checkpoints",
-    log_interval=100,
-    resume_from_checkpoint=True,
-    max_epochs=100,
-    bridge_noise_sigma=0.005,
-    save_interval: int = 1000,
-    resume_ckpt_path: Optional[str] = None,
-    devices=None,
-    num_nodes=1,
+        train_data_root="path/to/train",
+        validation_data_root="path/to/validation",
+        backbone_signature="runwayml/stable-diffusion-v1-5",
+        vae_num_channels=4,
+        unet_input_channels=6,
+        source_key="source",
+        target_key="target",
+        mask_key=None,
+        wandb_project="lbm-fill-lighting-simple",
+        batch_size=8,
+        num_steps=[1, 2, 4],
+        learning_rate=5e-5,
+        learning_rate_scheduler=None,
+        learning_rate_scheduler_kwargs={},
+        optimizer="AdamW",
+        optimizer_kwargs={},
+        timestep_sampling="uniform",
+        logit_mean=0.0,
+        logit_std=1.0,
+        pixel_loss_type="lpips",
+        latent_loss_type="l2",
+        latent_loss_weight=1.0,
+        pixel_loss_weight=0.0,
+        selected_timesteps=None,
+        prob=None,
+        conditioning_images_keys=None,
+        conditioning_masks_keys=None,
+        lighting_embedder_config=None,
+        lighting_condition_weight: float = 1.0,
+        concat_condition_weight: float = 1.0,
+        image_size=512,
+        num_workers=4,
+        config_yaml=None,
+        save_ckpt_path="./checkpoints",
+        log_interval=100,
+        resume_from_checkpoint=True,
+        max_epochs=100,
+        bridge_noise_sigma=0.005,
+        save_interval: int = 1000,
+        resume_ckpt_path: Optional[str] = None,
+        devices=None,
+        num_nodes=1,
 ):
     task_dir = resolve_task_dir(save_ckpt_path, "fill_lighting_simple")
     if conditioning_images_keys is None:
         conditioning_images_keys = []
     if conditioning_masks_keys is None:
-        conditioning_masks_keys = ["depth", "lighting_scale"]
+        conditioning_masks_keys = ["depth"]
 
     model = build_filllight_model(
         backbone_signature=backbone_signature,
@@ -296,6 +302,8 @@ def main(
         conditioning_masks_keys=conditioning_masks_keys,
         lighting_conditioning=True,
         lighting_embedder_config=lighting_embedder_config,
+        lighting_condition_weight=lighting_condition_weight,
+        concat_condition_weight=concat_condition_weight,
         bridge_noise_sigma=bridge_noise_sigma,
     )
 
@@ -314,7 +322,7 @@ def main(
         learning_rate=learning_rate,
         lr_scheduler_name=learning_rate_scheduler,
         lr_scheduler_kwargs=learning_rate_scheduler_kwargs,
-        log_keys=["source", "target", "depth", "lighting_scale"],
+        log_keys=["source", "target", "depth"],
         trainable_params=train_parameters,
         optimizer_name=optimizer,
         optimizer_kwargs=optimizer_kwargs,

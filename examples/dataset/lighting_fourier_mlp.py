@@ -21,7 +21,7 @@ class LightingToTextEmbedding(nn.Module):
     def __init__(self, mapping_size=256, scale=10.0, hidden_dim=512, out_dim=768):
         super().__init__()
         self.fourier = GaussianFourierFeatures(
-            in_features=7, mapping_size=mapping_size, scale=scale
+            in_features=8, mapping_size=mapping_size, scale=scale
         )
         self.mlp = nn.Sequential(
             nn.Linear(mapping_size * 2, hidden_dim),

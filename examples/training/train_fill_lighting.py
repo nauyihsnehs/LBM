@@ -171,8 +171,12 @@ class FillLightingFolderDataset(Dataset):
         params = torch.tensor(data, dtype=torch.float32)
 
         params = params.flatten()
-        if params.numel() != 7:
-            raise ValueError(f"Expected 7 lighting params, got {params.numel()} from {path}")
+        position = params[:2]
+        intensity = (params[2:3] / 200) * 2 - 1
+        color = params[3:6] * 2 - 1
+        area = (params[-1:] * 5) * 2 - 1
+        shading_scale = torch.ones_like(area)
+        params = torch.cat([position, intensity, color, area, shading_scale], dim=0)
         return params
 
     def __len__(self):
@@ -191,7 +195,6 @@ class FillLightingFolderDataset(Dataset):
         rgb = self._load_rgb(item["rgb"])
         depth = self._load_depth(item["depth"])
         lighting_params = self._load_lighting_params(item["lighting_params"])
-        lighting_scale = torch.ones_like(depth)
 
         shading = (rgb / albedo.clamp(1e-3, 1.0)).clamp(0.0, 1.0)
 
@@ -200,7 +203,6 @@ class FillLightingFolderDataset(Dataset):
             "target": target * 2 - 1,
             "shading": shading * 2 - 1,
             "depth": depth,
-            "lighting_scale": lighting_scale,
             "lighting_params": lighting_params,
         }
         return sample
@@ -259,6 +261,8 @@ def main(
         conditioning_images_keys=None,
         conditioning_masks_keys=None,
         lighting_embedder_config=None,
+        lighting_condition_weight: float = 1.0,
+        concat_condition_weight: float = 1.0,
         image_size=512,
         num_workers=4,
         config_yaml=None,
@@ -276,7 +280,7 @@ def main(
     if conditioning_images_keys is None:
         conditioning_images_keys = ["shading"]
     if conditioning_masks_keys is None:
-        conditioning_masks_keys = ["depth", "lighting_scale"]
+        conditioning_masks_keys = ["depth"]
 
     model = build_filllight_model(
         backbone_signature=backbone_signature,
@@ -298,6 +302,8 @@ def main(
         conditioning_masks_keys=conditioning_masks_keys,
         lighting_conditioning=True,
         lighting_embedder_config=lighting_embedder_config,
+        lighting_condition_weight=lighting_condition_weight,
+        concat_condition_weight=concat_condition_weight,
         bridge_noise_sigma=bridge_noise_sigma,
     )
 
@@ -315,7 +321,7 @@ def main(
         learning_rate=learning_rate,
         lr_scheduler_name=learning_rate_scheduler,
         lr_scheduler_kwargs=learning_rate_scheduler_kwargs,
-        log_keys=["source", "target", "shading", "depth", "lighting_scale"],
+        log_keys=["source", "target", "shading", "depth"],
         trainable_params=train_parameters,
         optimizer_name=optimizer,
         optimizer_kwargs=optimizer_kwargs,

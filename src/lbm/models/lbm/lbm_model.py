@@ -185,9 +185,12 @@ class LBMModel(BaseModel):
 
     def latent_loss(self, prediction, model_input, valid_latent_mask):
         if self.latent_loss_type == "l2":
-            return torch.mean(((prediction * valid_latent_mask - model_input * valid_latent_mask) ** 2).reshape(model_input.shape[0], -1), 1)
+            return torch.mean(
+                ((prediction * valid_latent_mask - model_input * valid_latent_mask) ** 2).reshape(model_input.shape[0],
+                                                                                                  -1), 1)
         elif self.latent_loss_type == "l1":
-            return torch.mean(torch.abs(prediction * valid_latent_mask - model_input * valid_latent_mask).reshape(model_input.shape[0], -1), 1)
+            return torch.mean(torch.abs(prediction * valid_latent_mask - model_input * valid_latent_mask).reshape(
+                model_input.shape[0], -1), 1)
         else:
             raise NotImplementedError(f"Loss type {self.latent_loss_type} not implemented")
 
@@ -229,20 +232,41 @@ class LBMModel(BaseModel):
         decoded_prediction = self.vae.decode(prediction).clamp(-1, 1)
 
         if self.pixel_loss_type == "l2":
-            return torch.mean(((decoded_prediction * valid_mask - model_input * valid_mask) ** 2).reshape(model_input.shape[0], -1), 1, )
+            return torch.mean(
+                ((decoded_prediction * valid_mask - model_input * valid_mask) ** 2).reshape(model_input.shape[0], -1),
+                1, )
 
         elif self.pixel_loss_type == "l1":
-            return torch.mean(torch.abs(decoded_prediction * valid_mask - model_input * valid_mask).reshape(model_input.shape[0], -1), 1, )
+            return torch.mean(
+                torch.abs(decoded_prediction * valid_mask - model_input * valid_mask).reshape(model_input.shape[0], -1),
+                1, )
 
         elif self.pixel_loss_type == "lpips":
             return self.lpips_loss(decoded_prediction * valid_mask, model_input * valid_mask).mean()
 
-    def _get_conditioning(self, batch: Dict[str, Any], ucg_keys: List[str] = None, set_ucg_rate_zero=False, *args, **kwargs):
+    def _get_conditioning(self, batch: Dict[str, Any], ucg_keys: List[str] = None, set_ucg_rate_zero=False, *args,
+                          **kwargs):
         """
         Get the conditionings
         """
         if self.conditioner is not None:
-            return self.conditioner(batch, ucg_keys=ucg_keys, set_ucg_rate_zero=set_ucg_rate_zero, vae=self.vae, *args, **kwargs)
+            # return self.conditioner(batch, ucg_keys=ucg_keys, set_ucg_rate_zero=set_ucg_rate_zero, vae=self.vae, *args, **kwargs)
+            conditioning = self.conditioner(
+                batch,
+                ucg_keys=ucg_keys,
+                set_ucg_rate_zero=set_ucg_rate_zero,
+                vae=self.vae,
+                *args,
+                **kwargs,
+            )
+            if conditioning and "cond" in conditioning:
+                crossattn = conditioning["cond"].get("crossattn")
+                if crossattn is not None and self.config.lighting_condition_weight != 1.0:
+                    conditioning["cond"]["crossattn"] = crossattn * self.config.lighting_condition_weight
+                concat = conditioning["cond"].get("concat")
+                if concat is not None and self.config.concat_condition_weight != 1.0:
+                    conditioning["cond"]["concat"] = concat * self.config.concat_condition_weight
+            return conditioning
         else:
             return None
 
@@ -374,6 +398,7 @@ class LBMModel(BaseModel):
                 z = source_image
 
             with torch.autocast(dtype=self.dtype, device_type="cuda"):
-                logs[f"samples_{num_step}_steps"] = self.sample(z, num_steps=num_step, conditioner_inputs=batch, max_samples=N)
+                logs[f"samples_{num_step}_steps"] = self.sample(z, num_steps=num_step, conditioner_inputs=batch,
+                                                                max_samples=N)
 
         return logs

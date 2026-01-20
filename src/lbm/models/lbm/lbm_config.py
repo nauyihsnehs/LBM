@@ -81,6 +81,8 @@ class LBMConfig(ModelConfig):
     selected_timesteps: Optional[List[float]] = None
     prob: Optional[List[float]] = None
     bridge_noise_sigma: float = 0.001
+    lighting_condition_weight: float = 1.0
+    concat_condition_weight: float = 1.0
 
     def __post_init__(self):
         super().__post_init__()

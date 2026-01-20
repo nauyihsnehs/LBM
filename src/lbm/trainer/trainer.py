@@ -25,11 +25,11 @@ class TrainingPipeline(pl.LightningModule):
     """
 
     def __init__(
-        self,
-        model: BaseModel,
-        pipeline_config: TrainingConfig,
-        verbose: bool = False,
-        **kwargs,
+            self,
+            model: BaseModel,
+            pipeline_config: TrainingConfig,
+            verbose: bool = False,
+            **kwargs,
     ):
         super().__init__()
 
@@ -61,7 +61,7 @@ class TrainingPipeline(pl.LightningModule):
             self.timer = time.perf_counter()
 
     def on_train_batch_end(
-        self, outputs: Dict[str, Any], batch: Any, batch_idx: int
+            self, outputs: Dict[str, Any], batch: Any, batch_idx: int
     ) -> None:
         if self.global_rank == 0:
             logging.debug("on_train_batch_end")
@@ -89,90 +89,130 @@ class TrainingPipeline(pl.LightningModule):
                 metrics.append(f"lr={lr:.6f}")
             # logging.info(" | ".join(metrics))
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
-        """
-        Setup optimizers and learning rate schedulers.
-        """
-        optimizers = []
+    def configure_optimizers(self):
         lr = self.pipeline_config.learning_rate
-        param_list = []
+
+        lr_mult = {r"conditioner.*": 10.0}
+
+        patterns = [(rx, re.compile(rx)) for rx in self.pipeline_config.trainable_params]
+        groups = {rx: [] for rx, _ in patterns}
+
         n_params = 0
-        param_list_ = {"params": []}
-        for name, param in self.model.named_parameters():
-            for regex in self.pipeline_config.trainable_params:
-                pattern = re.compile(regex)
-                if re.match(pattern, name):
-                    if param.requires_grad:
-                        param_list_["params"].append(param)
-                        n_params += param.numel()
+        seen = set()
 
-        param_list.append(param_list_)
+        for name, p in self.model.named_parameters():
+            rx_hit = None
+            for rx, pat in patterns:
+                if pat.match(name):
+                    rx_hit = rx
+                    break
 
-        logging.info(f"Number of trainable parameters: {n_params}")
+            if rx_hit is None:
+                p.requires_grad = False
+                continue
 
-        optimizer_cls = getattr(
-            importlib.import_module("torch.optim"),
-            self.pipeline_config.optimizer_name,
-        )
-        optimizer = optimizer_cls(
-            param_list, lr=lr, **self.pipeline_config.optimizer_kwargs
-        )
-        optimizers.append(optimizer)
+            if p.requires_grad and id(p) not in seen:
+                groups[rx_hit].append(p)
+                seen.add(id(p))
+                n_params += p.numel()
 
-        self.optims = optimizers
-        schedulers_config = self.configure_lr_schedulers()
-
-        for name, param in self.model.named_parameters():
-            set_grad_false = True
-            for regex in self.pipeline_config.trainable_params:
-                pattern = re.compile(regex)
-                if re.match(pattern, name):
-                    if param.requires_grad:
-                        set_grad_false = False
-            if set_grad_false:
-                param.requires_grad = False
-
-        num_trainable_params = sum(
-            p.numel() for p in self.model.parameters() if p.requires_grad
-        )
-
-        logging.info(f"Number of trainable parameters: {num_trainable_params}")
-
-        schedulers_config = self.configure_lr_schedulers()
-
-        if schedulers_config is None:
-            return optimizers
-
-        return optimizers, [
-            schedulers_config_ for schedulers_config_ in schedulers_config
+        param_groups = [
+            {"params": ps, "lr": lr * lr_mult.get(rx, 1.0)}
+            for rx, ps in groups.items() if ps
         ]
 
-    def configure_lr_schedulers(self):
-        schedulers_config = []
-        if self.pipeline_config.lr_scheduler_name is None:
-            scheduler = None
-            schedulers_config.append(scheduler)
-        else:
-            scheduler_cls = getattr(
-                importlib.import_module("torch.optim.lr_scheduler"),
-                self.pipeline_config.lr_scheduler_name,
-            )
-            scheduler = scheduler_cls(
-                self.optims[0],
-                **self.pipeline_config.lr_scheduler_kwargs,
-            )
-            lr_scheduler_config = {
-                "scheduler": scheduler,
-                "interval": self.pipeline_config.lr_scheduler_interval,
-                "monitor": "val_loss",
-                "frequency": self.pipeline_config.lr_scheduler_frequency,
-            }
-            schedulers_config.append(lr_scheduler_config)
+        logging.info(f"trainable params: {n_params}")
 
-        if all([scheduler is None for scheduler in schedulers_config]):
-            return None
+        optimizer_cls = getattr(importlib.import_module("torch.optim"), self.pipeline_config.optimizer_name)
+        optimizer = optimizer_cls(param_groups, **self.pipeline_config.optimizer_kwargs)
 
-        return schedulers_config
+        self.optims = [optimizer]
+        return [optimizer]
+
+    # def configure_optimizers(self) -> torch.optim.Optimizer:
+    #     """
+    #     Setup optimizers and learning rate schedulers.
+    #     """
+    #     optimizers = []
+    #     lr = self.pipeline_config.learning_rate # 4e-5
+    #     param_list = []
+    #     n_params = 0
+    #     param_list_ = {"params": []}
+    #     for name, param in self.model.named_parameters():
+    #         for regex in self.pipeline_config.trainable_params: # ['denoiser.*', 'conditioner.*']
+    #             pattern = re.compile(regex)
+    #             if re.match(pattern, name):
+    #                 if param.requires_grad:
+    #                     param_list_["params"].append(param)
+    #                     n_params += param.numel()
+    #
+    #     param_list.append(param_list_)
+    #
+    #     logging.info(f"Number of trainable parameters: {n_params}")
+    #
+    #     optimizer_cls = getattr(
+    #         importlib.import_module("torch.optim"),
+    #         self.pipeline_config.optimizer_name, # AdamW
+    #     )
+    #     optimizer = optimizer_cls(
+    #         param_list, lr=lr, **self.pipeline_config.optimizer_kwargs # {}
+    #     )
+    #     optimizers.append(optimizer)
+    #
+    #     self.optims = optimizers
+    #     schedulers_config = self.configure_lr_schedulers()
+    #
+    #     for name, param in self.model.named_parameters():
+    #         set_grad_false = True
+    #         for regex in self.pipeline_config.trainable_params:
+    #             pattern = re.compile(regex)
+    #             if re.match(pattern, name):
+    #                 if param.requires_grad:
+    #                     set_grad_false = False
+    #         if set_grad_false:
+    #             param.requires_grad = False
+    #
+    #     num_trainable_params = sum(
+    #         p.numel() for p in self.model.parameters() if p.requires_grad
+    #     )
+    #
+    #     logging.info(f"Number of trainable parameters: {num_trainable_params}")
+    #
+    #     schedulers_config = self.configure_lr_schedulers()
+    #
+    #     if schedulers_config is None: # True
+    #         return optimizers
+    #
+    #     return optimizers, [
+    #         schedulers_config_ for schedulers_config_ in schedulers_config
+    #     ]
+
+    # def configure_lr_schedulers(self):
+    #     schedulers_config = []
+    #     if self.pipeline_config.lr_scheduler_name is None: # True
+    #         scheduler = None
+    #         schedulers_config.append(scheduler)
+    #     else:
+    #         scheduler_cls = getattr(
+    #             importlib.import_module("torch.optim.lr_scheduler"),
+    #             self.pipeline_config.lr_scheduler_name,
+    #         )
+    #         scheduler = scheduler_cls(
+    #             self.optims[0],
+    #             **self.pipeline_config.lr_scheduler_kwargs,
+    #         )
+    #         lr_scheduler_config = {
+    #             "scheduler": scheduler,
+    #             "interval": self.pipeline_config.lr_scheduler_interval,
+    #             "monitor": "val_loss",
+    #             "frequency": self.pipeline_config.lr_scheduler_frequency,
+    #         }
+    #         schedulers_config.append(lr_scheduler_config)
+    #
+    #     if all([scheduler is None for scheduler in schedulers_config]): # True
+    #         return None
+    #
+    #     return schedulers_config
 
     def training_step(self, train_batch: Dict[str, Any], batch_idx: int) -> dict:
         model_output = self.model(train_batch)

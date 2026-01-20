@@ -22,6 +22,6 @@ class BaseConditionerConfig(BaseConfig):
         super().__post_init__()
 
         assert (
-            self.unconditional_conditioning_rate >= 0.0
-            and self.unconditional_conditioning_rate <= 1.0
+                self.unconditional_conditioning_rate >= 0.0
+                and self.unconditional_conditioning_rate <= 1.0
         ), "Unconditional conditioning rate should be between 0 and 1"
