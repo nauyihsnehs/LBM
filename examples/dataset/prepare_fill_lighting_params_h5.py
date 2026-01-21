@@ -107,8 +107,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root_dir",
         type=Path,
-        default='/mnt/data1/ssy/render_people/fill-light-dataset/train',
+        # default='/mnt/data1/ssy/render_people/fill-light-dataset/train',
         # default='/mnt/data1/ssy/render_people/fill-light-dataset/val',
+        default='/mnt/data1/ssy/render_people/fill-light-dataset/test',
         help="Root directory containing base scene/human folders.",
     )
     parser.add_argument(

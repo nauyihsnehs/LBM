@@ -164,7 +164,7 @@ def fit_trainer(
             train_dataloaders=train_loader,
             val_dataloaders=validation_loader,
             ckpt_path=ckpt_path,
-            weights_only=False
+            weights_only=False,
         )
     else:
         trainer.fit(

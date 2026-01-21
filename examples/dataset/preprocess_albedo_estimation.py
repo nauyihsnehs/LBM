@@ -24,7 +24,7 @@ def _list_rgb_images(folder: Path) -> Iterable[Path]:
         if (
                 path.is_file()
                 and path.suffix.lower() in VALID_SUFFIXES
-                and path.stem.endswith("_rgb")
+                and path.stem.endswith("999_rgb")
         ):
             yield path
 
@@ -155,12 +155,13 @@ def _load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> None:
 
 
 def main(
-        data_root: str,
+        # data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/test',
+        data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/train',
         train_config: Optional[str] = '/mnt/data1/ssy/render_people/LBM/examples/training/config/albedo.yaml',
         inference_config: Optional[
             str] = '/mnt/data1/ssy/render_people/LBM/examples/inference/config/albedo_infer.yaml',
         checkpoint_path: Optional[
-            str] = '/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo/epoch=2-step=30000.ckpt',
+            str] = '/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo/epoch=1-step=50000.ckpt',
         output_root: Optional[str] = None,
         device: Optional[str] = None,
         batch_size: int = 16,
@@ -202,9 +203,7 @@ def main(
     device = torch.device(device_name)
 
     model = build_relight_model(
-        backbone_signature=config.get(
-            "backbone_signature", "stable-diffusion-v1-5/stable-diffusion-v1-5"
-        ),
+        backbone_signature=config.get("backbone_signature", "stable-diffusion-v1-5/stable-diffusion-v1-5"),
         vae_num_channels=int(config.get("vae_num_channels", 4)),
         unet_input_channels=int(config.get("unet_input_channels", 4)),
         source_key=config.get("source_key", "source"),

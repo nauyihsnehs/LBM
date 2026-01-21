@@ -40,7 +40,8 @@ class FillLightingFolderDataset(Dataset):
         self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
         # self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
         self._alb_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
-        self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_elb$")
+        # self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_elb$")
+        self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_999_elb$")
         self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
         self._depth_pattern = re.compile(r"^(?P<pos>\d{3})_dpt$")
         self._lighting_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_lgt$")
@@ -82,9 +83,10 @@ class FillLightingFolderDataset(Dataset):
                         continue
                     elb_match = self._elb_pattern.match(stem)
                     if elb_match:
-                        pos_id = elb_match.group("pos")
-                        light_id = elb_match.group("light")
-                        elb_files.setdefault(pos_id, {})[light_id] = path
+                        # pos_id = elb_match.group("pos")
+                        # light_id = elb_match.group("light")
+                        # elb_files.setdefault(pos_id, {})[light_id] = path
+                        elb_files[elb_match.group("pos")] = path
                         continue
                     rgb_match = self._rgb_pattern.match(stem)
                     if rgb_match:
@@ -113,10 +115,11 @@ class FillLightingFolderDataset(Dataset):
             valid_pos_ids &= set(depth_files.keys())
             for pos_id in sorted(valid_pos_ids):
                 light_map = target_files[pos_id]
-            # for pos_id, light_map in target_files.items():
+                # for pos_id, light_map in target_files.items():
                 # source_path = source_files.get(pos_id)
                 alb_path = alb_files.get(pos_id)
                 rgb_path = rgb_files.get(pos_id)
+                elb_path = elb_files.get(pos_id)  # , {}).get(light_id)
                 depth_path = depth_files.get(pos_id)
                 # if source_path is None or rgb_path is None or depth_path is None:
                 # if alb_path is None or rgb_path is None or depth_path is None:
@@ -128,7 +131,6 @@ class FillLightingFolderDataset(Dataset):
                     lighting_params_path = lighting_params_files.get(pos_id, {}).get(light_id)
                     if lighting_params_path is None:
                         continue
-                    elb_path = elb_files.get(pos_id, {}).get(light_id)
                     items.append(
                         {
                             # "source": source_path,
