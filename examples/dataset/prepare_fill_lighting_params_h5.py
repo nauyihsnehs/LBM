@@ -51,7 +51,7 @@ def _lighting_params_from_frame(frame: Dict) -> Optional[Tuple[str, Iterable[flo
     distance = float(light["distance_D_m"])
     radius = float(light["radius_R_m"])
     constrain_radius = math.atan(radius / distance) if distance != 0 else 0.0
-    print(theta_norm, phi_norm)
+    # print(theta_norm, phi_norm)
 
     params = (
         theta_norm,
@@ -88,16 +88,16 @@ def generate_h5_files(root_dir: Path, overwrite: bool = False) -> None:
         renders = data["renders"]
         for frame in renders:
             result = _lighting_params_from_frame(frame)
-            # if result is None:
-            #     continue
-            # stem, params = result
-            # output_path = base_dir / f"{stem}_lgt.h5"
-            # if output_path.exists() and not overwrite:
-            #     logger.info("Skipping existing %s", output_path)
-            #     continue
-            # with h5py.File(output_path, "w") as file:
-            #     file.create_dataset("lighting_params", data=list(params))
-            # logger.info("Wrote %s", output_path)
+            if result is None:
+                continue
+            stem, params = result
+            output_path = base_dir / f"{stem}_lgt.h5"
+            if output_path.exists() and not overwrite:
+                logger.info("Skipping existing %s", output_path)
+                continue
+            with h5py.File(output_path, "w") as file:
+                file.create_dataset("lighting_params", data=list(params))
+            logger.info("Wrote %s", output_path)
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,8 +107,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root_dir",
         type=Path,
-        # default='/mnt/data1/ssy/render_people/fill-light-dataset/train',
-        default='/mnt/data1/ssy/render_people/fill-light-dataset/val',
+        default='/mnt/data1/ssy/render_people/fill-light-dataset/train',
+        # default='/mnt/data1/ssy/render_people/fill-light-dataset/val',
         help="Root directory containing base scene/human folders.",
     )
     parser.add_argument(

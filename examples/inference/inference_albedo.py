@@ -205,6 +205,7 @@ def run_inference(config: dict) -> None:
                 max_memory_mb = max(max_memory_mb, peak_memory)
 
             output_image = (output[0].float().cpu() + 1) / 2
+            output_image = torch.clamp(output_image, 0.0, 1.0)
             output_pil = ToPILImage()(output_image)
             output_name = f"{source_path.stem}_albedo.png"
             output_pil.save(run_dir / output_name)

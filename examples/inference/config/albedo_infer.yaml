@@ -1,5 +1,5 @@
 train_config: /mnt/data1/ssy/render_people/LBM/examples/training/config/albedo.yaml
-checkpoint_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo/epoch=1-step=23598.ckpt
+checkpoint_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/albedo
 source_image: /mnt/data1/ssy/render_people/fill-light-dataset/infer/huawei
 output_path: ./outputs/albedo
 num_inference_steps: 4

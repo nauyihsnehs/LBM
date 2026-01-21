@@ -118,8 +118,10 @@ def _run_batch(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch inference for MoGe depth.")
     parser.add_argument("--model", required=False, default="Ruicheng/moge-2-vitl")
-    parser.add_argument("--input-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/train/render")
-    parser.add_argument("--output-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/train/render")
+    # parser.add_argument("--input-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/train")
+    # parser.add_argument("--output-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/train")
+    parser.add_argument("--input-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/val")
+    parser.add_argument("--output-root", required=False, default="/mnt/data1/ssy/render_people/fill-light-dataset/val")
     parser.add_argument("--device", default="cuda", help="Torch device (cuda/cpu).")
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size.")
     parser.add_argument("--use-fp16", action="store_true", help="Enable FP16 inference.")

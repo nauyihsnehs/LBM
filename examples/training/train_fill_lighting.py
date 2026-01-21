@@ -107,22 +107,28 @@ class FillLightingFolderDataset(Dataset):
                         pos_id = lighting_match.group("pos")
                         light_id = lighting_match.group("light")
                         lighting_params_files.setdefault(pos_id, {})[light_id] = path
-
-            for pos_id, light_map in target_files.items():
+            valid_pos_ids = set(target_files.keys())
+            valid_pos_ids &= set(rgb_files.keys())
+            valid_pos_ids &= set(alb_files.keys())
+            valid_pos_ids &= set(depth_files.keys())
+            for pos_id in sorted(valid_pos_ids):
+                light_map = target_files[pos_id]
+            # for pos_id, light_map in target_files.items():
                 # source_path = source_files.get(pos_id)
                 alb_path = alb_files.get(pos_id)
                 rgb_path = rgb_files.get(pos_id)
                 depth_path = depth_files.get(pos_id)
                 # if source_path is None or rgb_path is None or depth_path is None:
-                if alb_path is None or rgb_path is None or depth_path is None:
-                    continue
-                elb_path = elb_files.get(pos_id, {}).get(light_id)
+                # if alb_path is None or rgb_path is None or depth_path is None:
+                #     continue
+
                 for light_id, target_path in light_map.items():
                     if int(light_id) >= 100:
                         continue
                     lighting_params_path = lighting_params_files.get(pos_id, {}).get(light_id)
                     if lighting_params_path is None:
                         continue
+                    elb_path = elb_files.get(pos_id, {}).get(light_id)
                     items.append(
                         {
                             # "source": source_path,
