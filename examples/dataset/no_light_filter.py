@@ -42,7 +42,7 @@ def _move_to_recycle(src: Path, recycle_root: Path, input_root: Path, dry_run: b
 def main() -> None:
     parser = argparse.ArgumentParser(description="Filter rgb images with extreme luminance.")
     parser.add_argument("--input-root", type=Path,
-                        default="/mnt/data1/ssy/render_people/fill-light-dataset/fill")
+                        default="/mnt/data1/ssy/render_people/fill-light-dataset/train-re")
     parser.add_argument("--recycle-root", type=Path,
                         default="/mnt/data1/ssy/render_people/fill-light-dataset/_trash_bin")
     parser.add_argument("--threshold-ratio", type=float, default=1 / 3)

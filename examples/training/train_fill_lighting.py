@@ -182,8 +182,12 @@ class FillLightingFolderDataset(Dataset):
         position = params[:2]
         intensity = (params[2:3] / 200) * 2 - 1
         color = params[3:6] * 2 - 1
-        area = (params[-1:] * 5) * 2 - 1
-        shading_scale = torch.ones_like(area)
+        if len(params) == 8:
+            area = (params[6:7] * 5) * 2 - 1
+            shading_scale = (params[-1:] - 0.5) * 2
+        else:
+            area = (params[-1:] * 5) * 2 - 1
+            shading_scale = torch.ones_like(area)
         params = torch.cat([position, intensity, color, area, shading_scale], dim=0)
         return params
 

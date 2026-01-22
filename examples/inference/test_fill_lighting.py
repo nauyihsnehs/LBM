@@ -290,7 +290,11 @@ def main() -> None:
                         default='/mnt/data1/ssy/render_people/LBM/examples/training/config/fill_lighting.yaml')
     parser.add_argument("--checkpoint_path", type=str,
                         # default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=30000.ckpt')
-                        default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=3-step=50000.ckpt')
+                        # default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=3-step=50000.ckpt')
+                        # default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=40000-v1.ckpt')
+                        # default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=3-step=50000-v1.ckpt')
+                        # default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=0-step=10000-v1.ckpt')
+                        default='/mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=1-step=20000-v1.ckpt')
     parser.add_argument("--data_root", type=str, default='/mnt/data1/ssy/render_people/fill-light-dataset/test')
     parser.add_argument("--output_path", type=str,
                         default='/mnt/data1/ssy/render_people/LBM/examples/inference/outputs/fill_lighting')

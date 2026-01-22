@@ -195,7 +195,8 @@ class LBMModel(BaseModel):
             raise NotImplementedError(f"Loss type {self.latent_loss_type} not implemented")
 
     def pixel_loss(self, prediction, model_input, valid_mask):
-        latent_crop = self.pixel_loss_max_size // self.vae.downsampling_factor
+        downsampling_factor = self.vae.downsampling_factor if self.vae is not None else 1
+        latent_crop = self.pixel_loss_max_size // downsampling_factor
         input_crop = self.pixel_loss_max_size
 
         crop_h = max((prediction.shape[2] - latent_crop), 0)
@@ -214,8 +215,8 @@ class LBMModel(BaseModel):
             offset_w = 0
         else:
             offset_w = torch.randint(0, crop_w, (1,)).item()
-        input_offset_h = offset_h * self.vae.downsampling_factor
-        input_offset_w = offset_w * self.vae.downsampling_factor
+        input_offset_h = offset_h * downsampling_factor
+        input_offset_w = offset_w * downsampling_factor
 
         prediction = prediction[:, :,
         crop_h - offset_h: min(crop_h - offset_h + latent_crop, prediction.shape[2]),
@@ -229,7 +230,10 @@ class LBMModel(BaseModel):
         input_crop_h - input_offset_h: min(input_crop_h - input_offset_h + input_crop, valid_mask.shape[2]),
         input_crop_w - input_offset_w: min(input_crop_w - input_offset_w + input_crop, valid_mask.shape[3])]
 
-        decoded_prediction = self.vae.decode(prediction).clamp(-1, 1)
+        if self.vae is not None:
+            decoded_prediction = self.vae.decode(prediction).clamp(-1, 1)
+        else:
+            decoded_prediction = prediction
 
         if self.pixel_loss_type == "l2":
             return torch.mean(

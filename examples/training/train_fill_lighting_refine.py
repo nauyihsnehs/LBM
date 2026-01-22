@@ -36,7 +36,7 @@ class FillLightingRefineFolderDataset(Dataset):
         self.random_flip = random_flip
 
         self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
-        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_pre$")
+        self._source_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_fill$")
         self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
 
         self.items = self._build_items()
@@ -194,8 +194,10 @@ def main(
         timestep_sampling="uniform",
         logit_mean=0.0,
         logit_std=1.0,
+        pixel_loss_type="lpips",
         latent_loss_type="l2",
         latent_loss_weight=1.0,
+        pixel_loss_weight=1.0,
         selected_timesteps=None,
         prob=None,
         conditioning_images_keys=None,
@@ -235,8 +237,10 @@ def main(
         timestep_sampling=timestep_sampling,
         logit_mean=logit_mean,
         logit_std=logit_std,
+        pixel_loss_type=pixel_loss_type,
         latent_loss_type=latent_loss_type,
         latent_loss_weight=latent_loss_weight,
+        pixel_loss_weight=pixel_loss_weight,
         selected_timesteps=selected_timesteps,
         prob=prob,
         conditioning_images_keys=conditioning_images_keys,
@@ -287,7 +291,7 @@ def main(
     fit_trainer(trainer, pipeline, train_loader, validation_loader, ckpt_path)
 
 
-def main_from_config(path_config):
+def main_from_config(path_config="/mnt/data1/ssy/render_people/LBM/examples/training/config/fill_lighting_refine.yaml"):
     with open(path_config, "r") as file:
         config = yaml.safe_load(file)
     print(f"Running main with config: {yaml.dump(config, default_flow_style=False)}")

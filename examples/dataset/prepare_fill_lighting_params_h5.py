@@ -28,7 +28,7 @@ def _extract_ids(frame: Dict) -> Optional[Tuple[str, str]]:
     return None
 
 
-def _lighting_params_from_frame(frame: Dict) -> Optional[Tuple[str, Iterable[float]]]:
+def _lighting_params_from_frame(frame: Dict, relight=False) -> Optional[Tuple[str, Iterable[float]]]:
     ids = _extract_ids(frame)
     if ids is None:
         return None
@@ -51,8 +51,6 @@ def _lighting_params_from_frame(frame: Dict) -> Optional[Tuple[str, Iterable[flo
     distance = float(light["distance_D_m"])
     radius = float(light["radius_R_m"])
     constrain_radius = math.atan(radius / distance) if distance != 0 else 0.0
-    # print(theta_norm, phi_norm)
-
     params = (
         theta_norm,
         phi_norm,
@@ -60,8 +58,13 @@ def _lighting_params_from_frame(frame: Dict) -> Optional[Tuple[str, Iterable[flo
         color_r,
         color_g,
         color_b,
-        constrain_radius,
+        constrain_radius
     )
+    # print(theta_norm, phi_norm)
+    # get original_lighting_scale if relight
+    if relight:
+        original_lighting_scale = float(light.get("original_lighting_scale", 1.0))
+        params += (original_lighting_scale, )
     return f"{pos_id}_{light_id}", params
 
 
@@ -74,20 +77,23 @@ def _load_metadata(metadata_path: Path) -> Dict:
     return data
 
 
-def generate_h5_files(root_dir: Path, overwrite: bool = False) -> None:
+def generate_h5_files(root_dir: Path, overwrite: bool = False, relight=False) -> None:
     base_dirs = [path for path in root_dir.iterdir() if path.is_dir()]
     if not base_dirs:
         raise FileNotFoundError(f"No base directories found in {root_dir}")
 
     for base_dir in sorted(base_dirs):
-        metadata_path = base_dir / "metadata.json"
+        if relight:
+            metadata_path = base_dir / "metadata-relight.json"
+        else:
+            metadata_path = base_dir / "metadata.json"
         if not metadata_path.exists():
             logger.warning("Skipping %s (missing metadata.json).", base_dir)
             continue
         data = _load_metadata(metadata_path)
         renders = data["renders"]
         for frame in renders:
-            result = _lighting_params_from_frame(frame)
+            result = _lighting_params_from_frame(frame, relight=relight)
             if result is None:
                 continue
             stem, params = result
@@ -109,12 +115,18 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         # default='/mnt/data1/ssy/render_people/fill-light-dataset/train',
         # default='/mnt/data1/ssy/render_people/fill-light-dataset/val',
-        default='/mnt/data1/ssy/render_people/fill-light-dataset/test',
+        # default='/mnt/data1/ssy/render_people/fill-light-dataset/test',
+        default='/mnt/data1/ssy/render_people/fill-light-dataset/train-re',
+        help="Root directory containing base scene/human folders.",
+    )
+    parser.add_argument(
+        "--relight",
+        default=True,
         help="Root directory containing base scene/human folders.",
     )
     parser.add_argument(
         "--overwrite",
-        action="store_true",
+        default=True,
         help="Overwrite existing .h5 files if present.",
     )
     return parser.parse_args()
@@ -123,7 +135,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
-    generate_h5_files(args.root_dir, overwrite=args.overwrite)
+    generate_h5_files(args.root_dir, overwrite=args.overwrite, relight=args.relight)
 
 
 if __name__ == "__main__":
