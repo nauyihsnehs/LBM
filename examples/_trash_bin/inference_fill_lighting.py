@@ -224,7 +224,7 @@ def run_inference(config: dict) -> None:
     else:
         lighting_params_tensor = _load_lighting_params(config.get("lighting_params_path"))
 
-    output_dir = Path(config.get("output_path", "./outputs"))
+    output_dir = Path(config.get("output_path", "../inference/outputs"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     image_size = int(config.get("image_size", 512))

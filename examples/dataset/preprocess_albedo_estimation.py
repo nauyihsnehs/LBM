@@ -157,7 +157,8 @@ def _load_checkpoint(model: torch.nn.Module, checkpoint_path: str) -> None:
 def main(
         # data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/test',
         # data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/train',
-        data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/train-re',
+        # data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/train-re',
+        data_root: str = '/mnt/data1/ssy/render_people/fill-light-dataset/train-self',
         train_config: Optional[str] = '/mnt/data1/ssy/render_people/LBM/examples/training/config/albedo.yaml',
         inference_config: Optional[
             str] = '/mnt/data1/ssy/render_people/LBM/examples/inference/config/albedo_infer.yaml',
@@ -170,7 +171,8 @@ def main(
         num_inference_steps: int = 4,
         image_size: int = 512,
         torch_dtype: str = "bfloat16",
-        albedo_suffix: str = "_elb",
+        # albedo_suffix: str = "_elb",
+        albedo_suffix: str = "_alb",
         albedo_extension: str = ".png",
         overwrite: bool = False,
 ):
