@@ -26,6 +26,8 @@ source_key: source
 target_key: target
 
 # DATA ROOTS
+#train_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/train-self
+#validation_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/val-self
 train_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/train-re
 validation_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/val-re
 #train_data_root: /mnt/data1/ssy/render_people/fill-light-dataset/train
@@ -35,6 +37,7 @@ num_workers: 4
 
 batch_size: 2
 learning_rate: 4e-5
+#learning_rate: 4e-6
 optimizer: AdamW
 num_steps: [ 1, 4 ]
 log_interval: 500
@@ -42,7 +45,9 @@ resume_from_checkpoint: true
 max_epochs: 10
 save_interval: 10000
 #resume_ckpt_path: null
-resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=1-step=20000-v1.ckpt
+resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=30000-v2.ckpt
+#resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=30000-v1.ckpt
+#resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=1-step=20000-v1.ckpt
 #resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=40000-v1.ckpt
 #resume_ckpt_path: /mnt/data1/ssy/render_people/LBM/examples/training/checkpoints/fill_lighting/epoch=2-step=30000-lpips.ckpt
 save_ckpt_path: ./checkpoints

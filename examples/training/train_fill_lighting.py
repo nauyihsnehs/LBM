@@ -40,6 +40,7 @@ class FillLightingFolderDataset(Dataset):
         self._target_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_rgb$")
         # self._source_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
         self._alb_pattern = re.compile(r"^(?P<pos>\d{3})_alb$")
+        # self._alb_pattern = re.compile(r"^(?P<pos>\d{3})_999_alb$")
         # self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_(?P<light>\d{3})_elb$")
         self._elb_pattern = re.compile(r"^(?P<pos>\d{3})_999_elb$")
         self._rgb_pattern = re.compile(r"^(?P<pos>\d{3})_999_rgb$")
